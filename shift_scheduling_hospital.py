@@ -64,27 +64,27 @@ month_days = 31
 public_holidays = [5, 6, 7]
 
 employees = [
-    ("P01", "L01"),
-    ("P02", "L01"),
-    ("P03", "L01"),
-    ("P04", "L01"),
-    ("P05", "L02"),
-    ("P06", "L02"),
-    ("P07", "L02"),
-    ("P08", "L02"),
-    ("P05", "L02"),
-    ("P09", "L03"),
-    ("P10", "L03"),
-    ("P11", "L03"),
-    ("P12", "L03"),
-    ("P13", "L03"),
-    ("P14", "L03"),
-    ("P15", "L04"),
-    ("P16", "L04"),
-    ("P17", "L04"),
-    ("P18", "L04"),
-    ("P19", "L04"),
-    ("P20", "L04"),
+    ("P01", "L01", 0, (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)),
+    ("P02", "L01", 0, ()),
+    ("P03", "L01",0, ()),
+    ("P04", "L01", 0, ()),
+    ("P05", "L02", 0, ()),
+    ("P06", "L02", 0, ()),
+    ("P07", "L02", 0, ()),
+    ("P08", "L02", 0, ()),
+    ("P05", "L02", 0, ()),
+    ("P09", "L03", 0, ()),
+    ("P10", "L03", 0, ()),
+    ("P11", "L03", 0, ()),
+    ("P12", "L03", 0, ()),
+    ("P13", "L03", 0, ()),
+    ("P14", "L03", 0, ()),
+    ("P15", "L04", 0, ()),
+    ("P16", "L04", 0, ()),
+    ("P17", "L04", 0, ()),
+    ("P18", "L04", 0, ()),
+    ("P19", "L04", 0, ()),
+    ("P20", "L04", 0, ()),
 #        ("P21", "L04"),
 #        ("P22", "L04"),
 ]
@@ -108,10 +108,14 @@ def solve_shift_scheduling(params: str, output_proto: str):
         print("wrong month days")
         return
 
-    for _, l in employees:
+    for _, l, _, neg in employees:
         if not l in levels:
             print ("wrong level " + l)
             return
+        for n in neg:
+            if n > month_days or n < 1:
+                print("wrong negative")
+                return
 
     for l in levels:
         for s in levels[l]:
@@ -188,6 +192,11 @@ def solve_shift_scheduling(params: str, output_proto: str):
         shifts_count = model.new_int_var(avg_shifts, avg_shifts_up_limit, name)
         works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
         model.add(shifts_count == sum(works))
+
+    for e in range(num_employees):
+        for d in employees[e][3]:
+            for s in range(num_shifts):
+                model.add(work[e, s, d-1] == 0)
 
     # Objective
     model.minimize(
