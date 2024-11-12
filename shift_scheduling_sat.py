@@ -278,13 +278,13 @@ def solve_shift_scheduling(params: str, output_proto: str):
     # daily demands for work shifts (morning, afternon, night) for each day
     # of the week starting on Monday.
     weekly_cover_demands = [
-        {"M":2, "A":3, "N":1},  # Monday
-        {"M":2, "A":3, "N":1},  # Tuesday
-        {"M":2, "A":2, "N":2},  # Wednesday
-        {"M":2, "A":3, "N":1},  # Thursday
-        {"M":2, "A":2, "N":2},  # Friday
-        {"M":1, "A":2, "N":3},  # Saturday
-        {"M":1, "A":3, "N":1},  # Sunday
+        {"M":1, "A":1, "N":1},  # Monday
+        {"M":1, "A":1, "N":1},  # Tuesday
+        {"M":1, "A":1, "N":1},  # Wednesday
+        {"M":1, "A":1, "N":1},  # Thursday
+        {"M":1, "A":1, "N":1},  # Friday
+        {"M":1, "A":1, "N":1},  # Saturday
+        {"M":1, "A":1, "N":1},  # Sunday
     ]
 
     # Penalty for exceeding the cover constraint per shift type.
@@ -397,6 +397,8 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if over_penalty > 0:
                     name = f"excess_demand(shift={s}, week={w}, day={d})"
                     excess = model.new_int_var(0, num_employees - min_demand, name)
+                    #excess_pow2 = model.NewIntVar(0, pow(num_employees - min_demand, 2), 'excess_pow2')
+                    #model.AddMultiplicationEquality(excess_pow2, [excess, excess])
                     model.add(excess == worked - min_demand)
                     obj_int_vars.append(excess)
                     obj_int_coeffs.append(over_penalty)
