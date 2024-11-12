@@ -62,6 +62,8 @@ levels = {
 month_first_day = "Th"
 month_days = 31
 public_holidays = [5, 6, 7]
+prev_month_last_is_holiday = False
+next_month_first_is_holiday = False
 
 employees = [
     ("P01", "L01", 0, (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)),
@@ -91,6 +93,22 @@ employees = [
 
 #end options
 ################################################################################
+
+def shift_cost(d, s):
+    cost = 100.0
+    ss = shifts[s]
+    is_night = ss in ["N1", "N2"]
+
+    if is_holiday(d):
+        cost *= 1.2
+        if is_holiday(d+1) or is_holiday(d-1):
+            cost *= 1.2
+
+    if is_night:
+        cost *= 1.3
+
+    return int(cost)
+
 
 def solve_shift_scheduling(params: str, output_proto: str):
     """Solves the shift scheduling problem."""
@@ -162,6 +180,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
             model.add_at_most_one(work[e, s, d] for s in range(num_shifts))
 
     total_shifts = 0
+    total_cost = 0
     for d in range(month_days):
             if is_holiday(d):
                 day_shifts = set(holiday_shifts)
@@ -175,6 +194,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if shifts[s] in day_shifts:
                     model.add(1 == sum(works))
                     total_shifts += 1
+                    total_cost += shift_cost(d,s)
                 else:
                     model.add(0 == sum(works))
 
@@ -186,6 +206,8 @@ def solve_shift_scheduling(params: str, output_proto: str):
         avg_shifts_up_limit += 1
 
     print("avg shifts: " + str(avg_shifts) + " " + str(rem_shifts))
+    print("total shifts " + str(total_shifts))
+    print("total cost " + str(total_cost))
 
     for e in range(num_employees):
         name = f"shifts_count({e})"
@@ -197,6 +219,8 @@ def solve_shift_scheduling(params: str, output_proto: str):
         for d in employees[e][3]:
             for s in range(num_shifts):
                 model.add(work[e, s, d-1] == 0)
+
+
 
     # Objective
     model.minimize(
@@ -258,6 +282,11 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
 
 def is_holiday(d):
+    if d == -1:
+        return prev_month_last_is_holiday
+    if d == month_days:
+        return next_month_first_is_holiday
+
     day_index = week.index(month_first_day)
     if d + 1 in public_holidays:
         return True
