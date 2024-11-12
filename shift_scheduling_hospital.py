@@ -35,63 +35,65 @@ html_footer = '''
 
 '''
 
-def solve_shift_scheduling(params: str, output_proto: str):
-    """Solves the shift scheduling problem."""
-    # Data
-    num_employees = 50
-    num_weeks = 4
-    week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-    shifts = ["IM","M1", "M2", "IA", "A1", "A2", "N1", "N2"]
+num_employees = 50
+num_weeks = 4
+week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "N1", "N2"]
 
-    shift_groups = [
-        ["IM", "IA"],
-        ["M1", "M2", "A1", "A2", "N1", "N2"]
-    ]
+shift_groups = [
+    ["IM", "IA"],
+    ["M1", "M2", "A1", "A2", "N1", "N2"]
+]
 
-    week_day_shifts = ["IA", "A1", "A2", "N1", "N2"]
-    holiday_shifts = ["IM","M1", "M2", "IA", "A1", "A2", "N1", "N2"]
+week_day_shifts = ["IA", "A1", "A2", "N1", "N2"]
+holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "N1", "N2"]
 
-    levels = {
-        "L01": ["IM", "IA"],
-        "L02": ["IM", "IA", "M2", "A2"],
-        "L03": ["IM", "IA", "M2", "A2", "N2"],
-        "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "N1", "N2"]
-    }
-    ################################################################################
-    #start options
-    month_first_day = "Th"
-    month_days = 31
-    public_holidays = [5, 6, 7]
+levels = {
+    "L01": ["IM", "IA"],
+    "L02": ["IM", "IA", "M2", "A2"],
+    "L03": ["IM", "IA", "M2", "A2", "N2"],
+    "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "N1", "N2"]
+}
 
-    employees = [
-        ("P01", "L01"),
-        ("P02", "L01"),
-        ("P03", "L01"),
-        ("P04", "L01"),
-        ("P05", "L02"),
-        ("P06", "L02"),
-        ("P07", "L02"),
-        ("P08", "L02"),
-        ("P05", "L02"),
-        ("P09", "L03"),
-        ("P10", "L03"),
-        ("P11", "L03"),
-        ("P12", "L03"),
-        ("P13", "L03"),
-        ("P14", "L03"),
-        ("P15", "L04"),
-        ("P16", "L04"),
-        ("P17", "L04"),
-        ("P18", "L04"),
-        ("P19", "L04"),
-        ("P20", "L04"),
+
+# Data
+################################################################################
+#start options
+month_first_day = "Th"
+month_days = 31
+public_holidays = [5, 6, 7]
+
+employees = [
+    ("P01", "L01"),
+    ("P02", "L01"),
+    ("P03", "L01"),
+    ("P04", "L01"),
+    ("P05", "L02"),
+    ("P06", "L02"),
+    ("P07", "L02"),
+    ("P08", "L02"),
+    ("P05", "L02"),
+    ("P09", "L03"),
+    ("P10", "L03"),
+    ("P11", "L03"),
+    ("P12", "L03"),
+    ("P13", "L03"),
+    ("P14", "L03"),
+    ("P15", "L04"),
+    ("P16", "L04"),
+    ("P17", "L04"),
+    ("P18", "L04"),
+    ("P19", "L04"),
+    ("P20", "L04"),
 #        ("P21", "L04"),
 #        ("P22", "L04"),
-    ]
+]
 
 #end options
 ################################################################################
 
+def solve_shift_scheduling(params: str, output_proto: str):
+    """Solves the shift scheduling problem."""
     num_employees = len(employees)
     num_shifts = len(shifts)
     day_index = week.index(month_first_day)
@@ -157,16 +159,10 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     total_shifts = 0
     for d in range(month_days):
-            is_holiday = False
-
-            if d + 1 in public_holidays:
-                is_holiday = True
-            elif (d + day_index) % 7 in [5,6]:
-                is_holiday = True
-
-            day_shifts = set(week_day_shifts)
-            if is_holiday:
+            if is_holiday(d):
                 day_shifts = set(holiday_shifts)
+            else:
+                day_shifts = set(week_day_shifts)
 
             day_shifts = day_shifts.intersection(set(shift_groups[d % len(shift_groups)]))
 
@@ -224,7 +220,12 @@ def solve_shift_scheduling(params: str, output_proto: str):
         output.append(header)
 
         for d in range(month_days):
-            line = [d + 1, week[(d + day_index) %7]]
+            line = []
+            if is_holiday(d):
+                line.append('* ' + str(d + 1))
+            else:
+                line.append('  ' + str(d + 1))
+            line.append(week[(d + day_index) %7])
             for s in range(num_shifts):
                 shift_given = False
                 for e in range(num_employees):
@@ -245,6 +246,15 @@ def solve_shift_scheduling(params: str, output_proto: str):
         finally:
             tmp.close()
             webbrowser.open('file://' + os.path.realpath(tmp.name))
+
+
+def is_holiday(d):
+    day_index = week.index(month_first_day)
+    if d + 1 in public_holidays:
+        return True
+    elif (d + day_index) % 7 in [5, 6]:
+        return True
+    return False
 
 
 def main(_):
