@@ -2,9 +2,12 @@
 
 from absl import app
 from absl import flags
+import os, tempfile
+import webbrowser
 
 from google.protobuf import text_format
 from ortools.sat.python import cp_model
+from pandas.core.array_algos.transforms import shift
 from tabulate import tabulate
 
 _OUTPUT_PROTO = flags.DEFINE_string(
@@ -14,8 +17,23 @@ _PARAMS = flags.DEFINE_string(
     "params", "max_time_in_seconds:60.0", "Sat solver parameters."
 )
 
+html_header = '''<!DOCTYPE html>
+<html>
+<style>
+table, th, td {
+  border:1px solid black;
+}
+</style>
+<body>
 
+'''
 
+html_footer = '''
+
+</body>
+</html>
+
+'''
 
 def solve_shift_scheduling(params: str, output_proto: str):
     """Solves the shift scheduling problem."""
@@ -24,10 +42,6 @@ def solve_shift_scheduling(params: str, output_proto: str):
     num_weeks = 4
     week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
     shifts = ["IM","M1", "M2", "IA", "A1", "A2", "N1", "N2"]
-
-    month_first_day = "Th"
-    month_days = 31
-    public_holidays = [5]
 
     shift_groups = [
         ["IM", "IA"],
@@ -38,11 +52,16 @@ def solve_shift_scheduling(params: str, output_proto: str):
     holiday_shifts = ["IM","M1", "M2", "IA", "A1", "A2", "N1", "N2"]
 
     levels = {
-        "L1": ["IM", "IA"],
-        "L2": ["IM", "IA", "M2", "A2"],
-        "L3": ["IM", "IA", "M2", "A2", "N2"],
-        "L4": ["M1", "M2", "IM", "IA", "A1", "A2", "N1", "N2"]
+        "L01": ["IM", "IA"],
+        "L02": ["IM", "IA", "M2", "A2"],
+        "L03": ["IM", "IA", "M2", "A2", "N2"],
+        "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "N1", "N2"]
     }
+    ################################################################################
+    #start options
+    month_first_day = "Th"
+    month_days = 31
+    public_holidays = [5, 6, 7]
 
     employees = [
         ("P01", "L01"),
@@ -66,15 +85,58 @@ def solve_shift_scheduling(params: str, output_proto: str):
         ("P18", "L04"),
         ("P19", "L04"),
         ("P20", "L04"),
-        ("P21", "L04"),
-        ("P22", "L04"),
+#        ("P21", "L04"),
+#        ("P22", "L04"),
     ]
+
+#end options
+################################################################################
 
     num_employees = len(employees)
     num_shifts = len(shifts)
     day_index = week.index(month_first_day)
 
     model = cp_model.CpModel()
+
+    if not month_first_day in week:
+        print("wrong day")
+        return
+
+    if month_days > 31 or month_days < 28:
+        print("wrong month days")
+        return
+
+    for _, l in employees:
+        if not l in levels:
+            print ("wrong level " + l)
+            return
+
+    for l in levels:
+        for s in levels[l]:
+            if not s in shifts:
+                print("wrong shift in level")
+                return
+
+    for s in week_day_shifts:
+        if not s in shifts:
+            print("wrong weekday shift")
+            return
+
+    for s in holiday_shifts:
+        if not s in shifts:
+            print("wrong holiday shift")
+            return
+
+    for h in public_holidays:
+        if h > month_days or h <=0:
+            print("wrong holiday")
+            return
+
+    for g in shift_groups:
+        for s in g:
+            if not s in shifts:
+                print("wrong shift in group")
+                return
 
     work = {}
     for e in range(num_employees):
@@ -93,6 +155,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         for d in range(month_days):
             model.add_at_most_one(work[e, s, d] for s in range(num_shifts))
 
+    total_shifts = 0
     for d in range(month_days):
             is_holiday = False
 
@@ -101,18 +164,34 @@ def solve_shift_scheduling(params: str, output_proto: str):
             elif (d + day_index) % 7 in [5,6]:
                 is_holiday = True
 
-            day_shifts = week_day_shifts
+            day_shifts = set(week_day_shifts)
             if is_holiday:
-                day_shifts = holiday_shifts
+                day_shifts = set(holiday_shifts)
+
+            day_shifts = day_shifts.intersection(set(shift_groups[d % len(shift_groups)]))
 
             for s in range(num_shifts):
                 works = [work[e, s, d] for e in range(num_employees)]
                 if shifts[s] in day_shifts:
                     model.add(1 == sum(works))
+                    total_shifts += 1
                 else:
                     model.add(0 == sum(works))
 
+    avg_shifts = total_shifts // len(employees)
+    rem_shifts = total_shifts % len(employees)
 
+    avg_shifts_up_limit = avg_shifts
+    if rem_shifts > 0:
+        avg_shifts_up_limit += 1
+
+    print("avg shifts: " + str(avg_shifts) + " " + str(rem_shifts))
+
+    for e in range(num_employees):
+        name = f"shifts_count({e})"
+        shifts_count = model.new_int_var(avg_shifts, avg_shifts_up_limit, name)
+        works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
+        model.add(shifts_count == sum(works))
 
     # Objective
     model.minimize(
@@ -145,7 +224,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         output.append(header)
 
         for d in range(month_days):
-            line = [d, week[(d + day_index) %7]]
+            line = [d + 1, week[(d + day_index) %7]]
             for s in range(num_shifts):
                 shift_given = False
                 for e in range(num_employees):
@@ -156,8 +235,16 @@ def solve_shift_scheduling(params: str, output_proto: str):
                     line.append("")
             output.append(line)
 
-        print(tabulate(output, tablefmt="html"))
-
+        #print(tabulate(output, tablefmt="html"))
+        tmp = tempfile.NamedTemporaryFile(mode='w', delete = False, suffix='.html')
+        try:
+            print(tmp.name)
+            tmp.write(html_header)
+            tmp.write(tabulate(output, tablefmt="html"))
+            tmp.write(html_footer)
+        finally:
+            tmp.close()
+            webbrowser.open('file://' + os.path.realpath(tmp.name))
 
 
 def main(_):
