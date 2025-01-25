@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import pandas
 from absl import app
 from absl import flags
 import os, tempfile
@@ -39,7 +39,7 @@ html_footer = '''
 num_employees = 50
 num_weeks = 4
 week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
+shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"]
 
 shift_groups = [
     ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
@@ -50,12 +50,18 @@ week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
 holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
 
 levels = {
-    "L01": ["IM", "IA"],
-    "L02": ["IM", "IA", "M2", "A3"],
-    "L03": ["IM", "IA", "M2", "A2", "A3","N2"],
-    "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "A3","N1", "N2"]
+    "A": ["M1", "A1", "N1", "A2"],
+    "B": ["M2", "A2", "A3", "N2", "IM", "IA"],
+    "C": ["M2", "A3", "N2", "IM", "IA"],
+    "D": ["M2", "A3", "IM", "IA"],
+    "E": ["M2", "A3"]
 }
 
+day_parts = {
+    "M" : ["IM", "M1", "M2"],
+    "A" : ["IA", "A1", "A2", "A3"],
+    "N" : ["N1", "N2"]
+}
 
 # Data
 ################################################################################
@@ -65,39 +71,9 @@ month_days = 28
 public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
+month_starts_with_internal = 0
 
-employees = [
-    ("P01", "L01", 0, ()),
-    ("P02", "L01", 0, ()),
-    ("P03", "L01",0, ()),
-    ("P04", "L01", 0, ()),
-    ("P05", "L02", 0, ()),
-    ("P06", "L02", 0, ()),
-    ("P07", "L02", 0, ()),
-    ("P08", "L02", 0, ()),
-    ("P09", "L03", 0, ()),
-    ("P10", "L03", 0, ()),
-    ("P11", "L03", 0, ()),
-    ("P12", "L03", 0, ()),
-    ("P13", "L03", 0, ()),
-    ("P14", "L03", 0, ()),
-    ("P15", "L04", 0, ()),
-    ("P16", "L04", 0, ()),
-    ("P17", "L04", 0, ()),
-    ("P18", "L04", 0, ()),
-    ("P19", "L04", 0, ()),
-    ("P20", "L04", 0, ()),
-    ("P21", "L04", 0, ()),
-    ("P22", "L04", 0, ()),
-    ("P23", "L04", 0, ()),
-    ("P24", "L04", 0, ()),
-    ("P25", "L04", 0, ()),
-    ("P26", "L04", 0, ()),
-    ("P27", "L04", 0, ()),
-    ("P28", "L04", 0, ()),
-#        ("P21", "L04"),
-#        ("P22", "L04"),
-]
+employees = []
 
 #end options
 ################################################################################
@@ -125,14 +101,14 @@ def validate_input():
     if month_days > 31 or month_days < 28:
         print("wrong month days")
         valid = False
-    for _, l, _, neg in employees:
-        if not l in levels:
-            print("wrong level " + l)
-            valid = False
-        for n in neg:
-            if n > month_days or n < 1:
-                print("wrong negative")
-                valid = False
+    # for _, l, _, neg in employees:
+    #     if not l in levels:
+    #         print("wrong level " + l)
+    #         valid = False
+    #     for n in neg:
+    #         if n > month_days or n < 1:
+    #             print("wrong negative")
+    #             valid = False
     for l in levels:
         for s in levels[l]:
             if not s in shifts:
@@ -155,7 +131,55 @@ def validate_input():
             if not s in shifts:
                 print("wrong shift in group")
                 valid = False
+
+    for dp in day_parts:
+        for s in day_parts[dp]:
+            if not s in shifts:
+                print("wrong day part")
+                valid = False
+
+    for s in shifts:
+        c = 0
+        for dp in day_parts:
+            for sdp in day_parts[dp]:
+                if s == sdp:
+                    c += 1
+        if c != 1:
+            print("wrong day part2" + str(c))
+            valid = False
+
+    for e in employees:
+        if e[1] not in levels:
+            valid = False
+            print ("not in levels")
+        if len(e[2]) != 2:
+            valid = False
+            print("invalid shift num pref")
+        if len(e[3]) != month_days:
+            valid = False
+            print("invalid shift num pref days")
+        for day_pref in e[3]:
+            if len(day_pref)!=3:
+                valid = False
+                print("invalid shift num pref days len")
+            for prf in day_pref:
+                if prf not in ["I", "WP", "P", "WN", "N"]:
+                    valid = False
+                    print ("wrong pref str")
+
     return valid
+
+def format_input(data):
+    for row in data:
+        out = []
+        out.append(row[0])
+        out.append(row[1])
+        out.append([int(row[2]), int(row[3])])
+        prefs = []
+        for i in range(4, len(row), 3):
+            prefs.append([row[i],row[i+1],row[i+2]])
+        out.append(prefs)
+        employees.append(out)
 
 
 def print_solution(solver, status, work):
@@ -223,7 +247,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         for d in range(month_days - 1):
             model.add_at_most_one(work[e, s, d_] for d_ in [d, d+1] for s in range(num_shifts))
 
-    #exclude shifts based to capability
+    #exclude shifts based to employee capability
     for e in range(num_employees):
         for s in range(num_shifts):
             for d in range(month_days):
@@ -237,7 +261,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 day_shifts = set(holiday_shifts)
             else:
                 day_shifts = set(week_day_shifts)
-            day_shifts = day_shifts.intersection(set(shift_groups[d % len(shift_groups)]))
+            day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
 
             for s in range(num_shifts):
                 works = [work[e, s, d] for e in range(num_employees)]
@@ -247,6 +271,16 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 else:
                     model.add(0 == sum(works))
 
+    #shifts num per employee
+    for e in range(num_employees):
+        name = f"shifts_count({e})"
+
+        # if employees[e][2][0] > 3:
+        #     employees[e][2][0] = 3
+
+        shifts_count = model.new_int_var(employees[e][2][0], employees[e][2][1], name)
+        employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
+        model.add(shifts_count == sum(employee_works))
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
@@ -280,6 +314,15 @@ def solve_shift_scheduling(params: str, output_proto: str):
         print("NOT SOLVED :-(")
 
 def main(_):
+    data = pandas.read_csv('data.csv')
+
+
+    # Display the modified DataFrame
+    #print(data.head())
+    list_data = data.values.tolist()
+    format_input(list_data)
+
+    print(employees)
     solve_shift_scheduling(_PARAMS.value, _OUTPUT_PROTO.value)
 
 
