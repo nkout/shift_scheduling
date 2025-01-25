@@ -332,7 +332,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if employees[e][3][d][day_parts_idx] == "N":
                     model.add(0 == sum(employee_works))
 
-                if employees[e][3][d][day_parts_idx] == "NP":
+                if employees[e][3][d][day_parts_idx] == "WN":
                     name = f"np_{e}_{d}_dp_{day_parts_idx}"
                     np = model.new_bool_var(name)
                     employee_works.append(~np)
@@ -346,7 +346,23 @@ def solve_shift_scheduling(params: str, output_proto: str):
                     employee_works.append(p)
                     model.add_bool_or(employee_works)
                     cost_literals.append(p)
-                    cost_coefficients.append(10)
+                    if day_parts_idx == 2:
+                        cost_coefficients.append(100)
+                    else:
+                        cost_coefficients.append(10)
+
+    # for e in range(num_employees):
+    #     day_works = []
+    #     night_works = []
+    #     for d in range(month_days):
+    #         day_parts_idx = -1
+    #         for dp in day_parts:
+    #             day_parts_idx += 1
+    #             part_shifts = []
+    #             for s1 in range(num_shifts):
+    #                 if shifts[s1] in dp:
+    #                     part_shifts.append(s1)
+    #             employee_works = [work[e, s, d] for s in part_shifts]
 
     #shifts spread
     out_days = []
