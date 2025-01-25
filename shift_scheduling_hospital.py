@@ -332,6 +332,22 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if employees[e][3][d][day_parts_idx] == "N":
                     model.add(0 == sum(employee_works))
 
+                if employees[e][3][d][day_parts_idx] == "NP":
+                    name = f"np_{e}_{d}_dp_{day_parts_idx}"
+                    np = model.new_bool_var(name)
+                    employee_works.append(~np)
+                    model.add_bool_or(employee_works)
+                    cost_literals.append(np)
+                    cost_coefficients.append(10)
+
+                if employees[e][3][d][day_parts_idx] == "WP":
+                    name = f"p_{e}_{d}_dp_{day_parts_idx}"
+                    p = model.new_bool_var(name)
+                    employee_works.append(p)
+                    model.add_bool_or(employee_works)
+                    cost_literals.append(p)
+                    cost_coefficients.append(10)
+
     #shifts spread
     out_days = []
     for e in range(num_employees):
@@ -345,35 +361,43 @@ def solve_shift_scheduling(params: str, output_proto: str):
             row.append(out_day)
         out_days.append(row)
 
-    window_size = 8
-    shifts_on_window = 2
+    window_size = 12
+    shifts_on_window = 3
     for e in range(num_employees):
         for d in range(month_days - window_size):
             shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
             works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
             model.add(shifts_count == sum(works))
 
-    soft_min = 4
+    window2_size = 5
+    shifts_on_window2 = 2
     for e in range(num_employees):
-        for d1 in range(month_days):
-            for d2 in range(month_days):
-                if d2> d1:
-                    seq = []
-                    if d1 > 0:
-                        seq.append(out_days[e][d1-1])
-                    if d2 < (month_days - 1):
-                        seq.append(out_days[e][d2 + 1])
-                    for i in range(d1, d2+1):
-                        seq.append(~out_days[e][i])
-                    name = f"out_e_{e}_d1_{d1}_d2_{d2}"
-                    out_day = model.new_bool_var(name)
-                    seq.append(out_day)
-                    model.add_bool_or(seq)
-                    cost_literals.append(out_day)
-                    if d2-d1 > soft_min:
-                        cost_coefficients.append(10 * soft_min)
-                    else:
-                        cost_coefficients.append(10 * (d2 - d1))
+        for d in range(month_days - window2_size):
+            shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
+            works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
+            model.add(shifts_count == sum(works))
+
+    # soft_min = 4
+    # for e in range(num_employees):
+    #     for d1 in range(month_days):
+    #         for d2 in range(month_days):
+    #             if d2> d1:
+    #                 seq = []
+    #                 if d1 > 0:
+    #                     seq.append(out_days[e][d1-1])
+    #                 if d2 < (month_days - 1):
+    #                     seq.append(out_days[e][d2 + 1])
+    #                 for i in range(d1, d2+1):
+    #                     seq.append(~out_days[e][i])
+    #                 name = f"out_e_{e}_d1_{d1}_d2_{d2}"
+    #                 out_day = model.new_bool_var(name)
+    #                 seq.append(out_day)
+    #                 model.add_bool_or(seq)
+    #                 cost_literals.append(out_day)
+    #                 if d2-d1 > soft_min:
+    #                     cost_coefficients.append(10 * soft_min)
+    #                 else:
+    #                     cost_coefficients.append(10 * (d2 - d1))
 
 
     avg_shifts = total_shifts // len(employees)
