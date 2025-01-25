@@ -221,6 +221,32 @@ def print_solution(solver, status, work):
         webbrowser.open('file://' + os.path.realpath(tmp.name))
 
 
+def negated_bounded_span(works, e, s1, s2, d, length):
+
+    sequence = []
+    # left border (start of works, or works[start - 1])
+    if d > 0:
+        sequence.append(works[e,s1, d - 1])
+    for i in range(length):
+        for si in range(len(shifts)):
+            sequence.append(~works[e,si,d + i])
+    # right border (end of works or works[start + length])
+    if d + length < month_days:
+        sequence.append(works[e,s2,d + length])
+    return sequence
+
+
+
+def negated_bounded_span2(works, e, s1, s2, start, end):
+    sequence = []
+    # left border (start of works, or works[start - 1])
+    sequence.append(works[e,s1, start])
+    sequence.append(works[e, s2, end])
+    for i in range(length):
+        sequence.append(~works[start + i])
+
+    return sequence
+
 
 def solve_shift_scheduling(params: str, output_proto: str):
     """Solves the shift scheduling problem."""
@@ -235,6 +261,8 @@ def solve_shift_scheduling(params: str, output_proto: str):
 ########################################################################
 # Basic Rules
 ########################################################################
+    cost_literals = []
+    cost_coefficients = []
 
     work = {}
     for e in range(num_employees):
@@ -275,12 +303,45 @@ def solve_shift_scheduling(params: str, output_proto: str):
     for e in range(num_employees):
         name = f"shifts_count({e})"
 
-        # if employees[e][2][0] > 3:
-        #     employees[e][2][0] = 3
+        if employees[e][2][0] > 3:
+            employees[e][2][0] = 3
 
         shifts_count = model.new_int_var(employees[e][2][0], employees[e][2][1], name)
         employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
         model.add(shifts_count == sum(employee_works))
+
+    #shifts spread
+    out_days = []
+    for e in range(num_employees):
+        row = []
+        for d in range(month_days):
+            on_duty = [work[e, s, d] for s in range(num_shifts)]
+            name = f"out_e_{e}_d_{d}"
+            out_day = model.new_bool_var(name)
+            on_duty.append(out_day)
+            model.add_bool_or(on_duty)
+            row.append(out_day)
+        out_days.append(row)
+
+    soft_min = 5
+    for e in range(num_employees):
+        for d1 in range(month_days):
+            for d2 in range(month_days):
+                if d2> d1 + 1:
+                    seq = []
+                    if d1 > 0:
+                        seq.append(out_days[e][d1-1])
+                    if d2 < (month_days - 1):
+                        seq.append(out_days[e][d2 + 1])
+                    for i in range(d1, d2+1):
+                        seq.append(~out_days[e][i])
+                    name = f"out_e_{e}_d1_{d1}_d2_{d2}"
+                    out_day = model.new_bool_var(name)
+                    seq.append(out_day)
+                    model.add_bool_or(seq)
+                    cost_literals.append(out_day)
+                    cost_coefficients.append(2 * (d2 - d1))
+
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
@@ -291,7 +352,9 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     # Objective
     model.minimize(
-        1 # sum(cost for cost in costs)
+        sum(cost_literals[i] * cost_coefficients[i] for i in range(len(cost_literals)))
+        #+
+        #sum(obj_int_vars[i] * obj_int_coeffs[i] for i in range(len(obj_int_vars)))
     )
 
     if output_proto:
