@@ -14,7 +14,7 @@ _OUTPUT_PROTO = flags.DEFINE_string(
     "output_proto", "", "Output file to write the cp_model proto to."
 )
 _PARAMS = flags.DEFINE_string(
-    "params", "max_time_in_seconds:60.0", "Sat solver parameters."
+    "params", "max_time_in_seconds:30.0", "Sat solver parameters."
 )
 
 html_header = '''<!DOCTYPE html>
@@ -61,7 +61,7 @@ levels = {
 #start options
 month_first_day = "Th"
 month_days = 31
-public_holidays = [5, 6, 7]
+public_holidays = [5,]
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 
@@ -74,7 +74,6 @@ employees = [
     ("P06", "L02", 0, ()),
     ("P07", "L02", 0, ()),
     ("P08", "L02", 0, ()),
-    ("P05", "L02", 0, ()),
     ("P09", "L03", 0, ()),
     ("P10", "L03", 0, ()),
     ("P11", "L03", 0, ()),
@@ -94,18 +93,34 @@ employees = [
 #end options
 ################################################################################
 
+min_cost = 100
+max_cost = 200
+#mean_cost = (max_cost+min_cost)//2
+
 def shift_cost(d, s):
-    cost = 100.0
+    # cost = 1.0 * min_cost
+    # ss = shifts[s]
+    # is_night = ss in ["N1", "N2"]
+    #
+    # if is_night:
+    #     cost *= 1.8
+    #
+    # if is_holiday(d):
+    #     cost *= 1.3
+    #     if is_holiday(d+1) or is_holiday(d-1):
+    #         cost *= 1.2
+    # elif is_night and is_holiday(d + 1):
+    #     cost *= 1.2
+    #
+    # if cost  > max_cost:
+    #     cost = max_cost
+
+    cost = min_cost
     ss = shifts[s]
     is_night = ss in ["N1", "N2"]
 
-    if is_holiday(d):
-        cost *= 1.2
-        if is_holiday(d+1) or is_holiday(d-1):
-            cost *= 1.2
-
-    if is_night:
-        cost *= 1.3
+    if is_holiday(d)  or is_night:
+        cost = max_cost
 
     return int(cost)
 
@@ -200,6 +215,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
+    mean_cost = total_cost // len(employees)
 
     avg_shifts_up_limit = avg_shifts
     if rem_shifts > 0:
@@ -210,22 +226,54 @@ def solve_shift_scheduling(params: str, output_proto: str):
     print("total cost " + str(total_cost))
 
     for e in range(num_employees):
-        name = f"shifts_count({e})"
-        shifts_count = model.new_int_var(avg_shifts, avg_shifts_up_limit, name)
         works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
+        shifts_count = model.new_int_var(avg_shifts - 2, avg_shifts_up_limit + 1, f"shifts_count_{e}")
         model.add(shifts_count == sum(works))
+        #employ_shifts_costs = model.NewIntVar(0, 100 * total_shifts, f"shifts_cost{e}")
+
+    print(f"shifts count {avg_shifts} {avg_shifts_up_limit}")
 
     for e in range(num_employees):
         for d in employees[e][3]:
             for s in range(num_shifts):
                 model.add(work[e, s, d-1] == 0)
 
+    for e in range(num_employees):
+        for s in range(num_shifts):
+            for d in range(month_days):
+                if shifts[s] not in levels[employees[e][1]]:
+                    model.add(work[e, s, d] == 0)
 
+    for d in range(month_days - 1):
+        for e in range(num_employees):
+            for s1 in range(num_shifts):
+                for s2 in range(num_shifts):
+                    transition = [
+                        ~work[e, s1, d],
+                        ~work[e, s2, d + 1],
+                    ]
+                    model.add_bool_or(transition)
+
+    print("costs")
+
+    costs= []
+    # for e in range(num_employees):
+    #     cost = sum( [work[e, s, d] * shift_cost(d,s) for s in range(num_shifts) for d in range(month_days)])
+    #     employ_cost = model.NewIntVar(total_cost//num_employees - 2 * mean_cost, total_cost//num_employees + 2 * mean_cost, f"cost_{e}")
+    #     model.add_abs_equality(employ_cost, cost -  total_cost//num_employees)
+    #     costs.append(employ_cost)
+    #
+    # multiplier = 5
+    #
+    # for e in range(num_employees):
+    #     shifts_sum = sum( [work[e, s, d] for s in range(num_shifts) for d in range(month_days)])
+    #     employ_shifts = model.NewIntVar(0 , 100 * total_shifts, f"emp_shifts_{e}")
+    #     model.add_abs_equality(employ_shifts, shifts_sum * 100 - 100 *total_shifts//num_employees )
+    #     costs.append(employ_shifts)
 
     # Objective
     model.minimize(
-        sum(obj_bool_vars[i] * obj_bool_coeffs[i] for i in range(len(obj_bool_vars)))
-        + sum(obj_int_vars[i] * obj_int_coeffs[i] for i in range(len(obj_int_vars)))
+        1 # sum(cost for cost in costs)
     )
 
     if output_proto:
