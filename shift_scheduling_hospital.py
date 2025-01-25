@@ -38,35 +38,35 @@ html_footer = '''
 num_employees = 50
 num_weeks = 4
 week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "N1", "N2"]
+shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
 
 shift_groups = [
-    ["IM", "IA"],
-    ["M1", "M2", "A1", "A2", "N1", "N2"]
+    ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
+    ["IM", "IA"]
 ]
 
-week_day_shifts = ["IA", "A1", "A2", "N1", "N2"]
-holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "N1", "N2"]
+week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
+holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
 
 levels = {
     "L01": ["IM", "IA"],
-    "L02": ["IM", "IA", "M2", "A2"],
-    "L03": ["IM", "IA", "M2", "A2", "N2"],
-    "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "N1", "N2"]
+    "L02": ["IM", "IA", "M2", "A3"],
+    "L03": ["IM", "IA", "M2", "A2", "A3","N2"],
+    "L04": ["M1", "M2", "IM", "IA", "A1", "A2", "A3","N1", "N2"]
 }
 
 
 # Data
 ################################################################################
 #start options
-month_first_day = "Th"
-month_days = 31
-public_holidays = [5,]
+month_first_day = "Sa"
+month_days = 28
+public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 
 employees = [
-    ("P01", "L01", 0, (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)),
+    ("P01", "L01", 0, ()),
     ("P02", "L01", 0, ()),
     ("P03", "L01",0, ()),
     ("P04", "L01", 0, ()),
@@ -86,6 +86,14 @@ employees = [
     ("P18", "L04", 0, ()),
     ("P19", "L04", 0, ()),
     ("P20", "L04", 0, ()),
+    ("P21", "L04", 0, ()),
+    ("P22", "L04", 0, ()),
+    ("P23", "L04", 0, ()),
+    ("P24", "L04", 0, ()),
+    ("P25", "L04", 0, ()),
+    ("P26", "L04", 0, ()),
+    ("P27", "L04", 0, ()),
+    ("P28", "L04", 0, ()),
 #        ("P21", "L04"),
 #        ("P22", "L04"),
 ]
@@ -133,6 +141,9 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     model = cp_model.CpModel()
 
+########################################################################
+#input validation
+########################################################################
     if not month_first_day in week:
         print("wrong day")
         return
@@ -177,22 +188,37 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 print("wrong shift in group")
                 return
 
+########################################################################
+# Basic Rules
+########################################################################
+
     work = {}
     for e in range(num_employees):
         for s in range(num_shifts):
             for d in range(month_days):
                 work[e, s, d] = model.new_bool_var(f"work{e}_{s}_{d}")
 
+    # Exactly one shift per 2 days
+    for e in range(num_employees):
+        for d in range(month_days - 1):
+            model.add_at_most_one(work[e, s, d_] for d_ in [d, d+1] for s in range(num_shifts))
+
+    # #not 2 shifts in a row
+    # for e in range(num_employees):
+    #     for d in range(month_days - 1):
+    #         for s1 in range(num_shifts):
+    #             for s2 in range(num_shifts):
+    #                 transition = [
+    #                     ~work[e, s1, d],
+    #                     ~work[e, s2, d + 1],
+    #                 ]
+    #                 model.add_bool_or(transition)
+
     # Linear terms of the objective in a minimization context.
     obj_int_vars: list[cp_model.IntVar] = []
     obj_int_coeffs: list[int] = []
     obj_bool_vars: list[cp_model.BoolVarT] = []
     obj_bool_coeffs: list[int] = []
-
-    # Exactly one shift per day.
-    for e in range(num_employees):
-        for d in range(month_days):
-            model.add_at_most_one(work[e, s, d] for s in range(num_shifts))
 
     total_shifts = 0
     total_cost = 0
@@ -244,15 +270,6 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if shifts[s] not in levels[employees[e][1]]:
                     model.add(work[e, s, d] == 0)
 
-    for d in range(month_days - 1):
-        for e in range(num_employees):
-            for s1 in range(num_shifts):
-                for s2 in range(num_shifts):
-                    transition = [
-                        ~work[e, s1, d],
-                        ~work[e, s2, d + 1],
-                    ]
-                    model.add_bool_or(transition)
 
     print("costs")
 
