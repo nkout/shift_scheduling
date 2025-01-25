@@ -15,7 +15,7 @@ _OUTPUT_PROTO = flags.DEFINE_string(
     "output_proto", "", "Output file to write the cp_model proto to."
 )
 _PARAMS = flags.DEFINE_string(
-    "params", "max_time_in_seconds:30.0", "Sat solver parameters."
+    "params", "max_time_in_seconds:20.0", "Sat solver parameters."
 )
 
 html_header = '''<!DOCTYPE html>
@@ -57,10 +57,14 @@ levels = {
     "E": ["M2", "A3"]
 }
 
-day_parts = {
-    "M" : ["IM", "M1", "M2"],
-    "A" : ["IA", "A1", "A2", "A3"],
-    "N" : ["N1", "N2"]
+day_parts = [
+    ["IM", "M1", "M2"],
+    ["IA", "A1", "A2", "A3"],
+    ["N1", "N2"]
+]
+
+shift_categories = {
+
 }
 
 # Data
@@ -133,7 +137,7 @@ def validate_input():
                 valid = False
 
     for dp in day_parts:
-        for s in day_parts[dp]:
+        for s in dp:
             if not s in shifts:
                 print("wrong day part")
                 valid = False
@@ -141,7 +145,7 @@ def validate_input():
     for s in shifts:
         c = 0
         for dp in day_parts:
-            for sdp in day_parts[dp]:
+            for sdp in dp:
                 if s == sdp:
                     c += 1
         if c != 1:
@@ -310,6 +314,24 @@ def solve_shift_scheduling(params: str, output_proto: str):
         employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
         model.add(shifts_count == sum(employee_works))
 
+    ##positives - negatives
+    for e in range(num_employees):
+        for d in range(month_days):
+            day_parts_idx = -1
+            for dp in day_parts:
+                day_parts_idx += 1
+                part_shifts = []
+                for s1 in range(num_shifts):
+                    if shifts[s1] in dp:
+                        part_shifts.append(s1)
+                employee_works = [work[e, s, d] for s in part_shifts]
+
+                if employees[e][3][d][day_parts_idx] == "P":
+                    model.add(1 == sum(employee_works))
+
+                if employees[e][3][d][day_parts_idx] == "N":
+                    model.add(0 == sum(employee_works))
+
     #shifts spread
     out_days = []
     for e in range(num_employees):
@@ -323,11 +345,19 @@ def solve_shift_scheduling(params: str, output_proto: str):
             row.append(out_day)
         out_days.append(row)
 
-    soft_min = 5
+    window_size = 8
+    shifts_on_window = 2
+    for e in range(num_employees):
+        for d in range(month_days - window_size):
+            shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
+            works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
+            model.add(shifts_count == sum(works))
+
+    soft_min = 4
     for e in range(num_employees):
         for d1 in range(month_days):
             for d2 in range(month_days):
-                if d2> d1 + 1:
+                if d2> d1:
                     seq = []
                     if d1 > 0:
                         seq.append(out_days[e][d1-1])
@@ -340,7 +370,10 @@ def solve_shift_scheduling(params: str, output_proto: str):
                     seq.append(out_day)
                     model.add_bool_or(seq)
                     cost_literals.append(out_day)
-                    cost_coefficients.append(2 * (d2 - d1))
+                    if d2-d1 > soft_min:
+                        cost_coefficients.append(10 * soft_min)
+                    else:
+                        cost_coefficients.append(10 * (d2 - d1))
 
 
     avg_shifts = total_shifts // len(employees)
