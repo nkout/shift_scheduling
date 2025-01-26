@@ -408,27 +408,43 @@ def solve_shift_scheduling(params: str, output_proto: str):
         model.add(all_sum == sum(all_work))
 
         more_than_five = model.new_bool_var(f"e_{e}_more_than_five")
-        model.add(all_sum >= 5).only_enforce_if(more_than_five)
-        model.add(all_sum < 5).only_enforce_if(~more_than_five)
-
-        more_than_three = model.new_bool_var(f"e_{e}_more_than_three")
-        model.add(all_sum > 3).only_enforce_if(more_than_three)
-        model.add(all_sum <= 3).only_enforce_if(~more_than_three)
+        model.add(all_sum > 5).only_enforce_if(more_than_five)
+        model.add(all_sum <= 5).only_enforce_if(~more_than_five)
 
         more_than_four = model.new_bool_var(f"e_{e}_more_than_four")
         model.add(all_sum > 4).only_enforce_if(more_than_four)
         model.add(all_sum <= 4).only_enforce_if(~more_than_four)
 
+        more_than_three = model.new_bool_var(f"e_{e}_more_than_three")
+        model.add(all_sum > 3).only_enforce_if(more_than_three)
+        model.add(all_sum <= 3).only_enforce_if(~more_than_three)
+
+
+        night_sum = model.new_int_var(0, month_days, f"night_sum_{e}")
+        model.add(night_sum == sum(night_works))
+
+        more_than_one_night = model.new_bool_var(f"e_{e}_more_than_one_night")
+        model.add(night_sum > 1).only_enforce_if(more_than_one_night)
+        model.add(night_sum <= 1).only_enforce_if(~more_than_one_night)
+
+
+
         #night rules
         if can_do_nights(e) and desired_nights < 10:
-            model.add(sum(night_works) < 4)
-            model.add(sum(night_works) < 2).OnlyEnforceIf(~more_than_five)
+            model.add(sum(night_works) < 3)
+            #model.add(sum(night_works) >= 2).OnlyEnforceIf(more_eq_than_four)
+            model.add(sum(night_works) <= 2).OnlyEnforceIf(~more_than_four)
             model.add(sum(night_works) < 1).OnlyEnforceIf(~more_than_three)
+
+            two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
+            model.add_exactly_one([~more_than_one_night, more_than_four, two_nights_on_four])
+            cost_literals.append(two_nights_on_four)
+            cost_coefficients.append(300)
         elif can_do_nights(e):
             print("prefers nights " + str(e))
 
         #holiday_rules
-        model.add(sum(holiday_work) <= 2).only_enforce_if(~more_than_four)
+        model.add(sum(holiday_work) <= 2).only_enforce_if(~more_than_five)
         model.add(sum(holiday_work) <= 3)
 
 
@@ -445,44 +461,21 @@ def solve_shift_scheduling(params: str, output_proto: str):
             row.append(out_day)
         out_days.append(row)
 
-    window_size = 12
-    shifts_on_window = 3
-    for e in range(num_employees):
-        for d in range(month_days - window_size):
-            shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
-            works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
-            model.add(shifts_count == sum(works))
-
-    window2_size = 5
-    shifts_on_window2 = 2
-    for e in range(num_employees):
-        for d in range(month_days - window2_size):
-            shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
-            works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
-            model.add(shifts_count == sum(works))
-
-    # soft_min = 4
+    # window_size = 12
+    # shifts_on_window = 3
     # for e in range(num_employees):
-    #     for d1 in range(month_days):
-    #         for d2 in range(month_days):
-    #             if d2> d1:
-    #                 seq = []
-    #                 if d1 > 0:
-    #                     seq.append(out_days[e][d1-1])
-    #                 if d2 < (month_days - 1):
-    #                     seq.append(out_days[e][d2 + 1])
-    #                 for i in range(d1, d2+1):
-    #                     seq.append(~out_days[e][i])
-    #                 name = f"out_e_{e}_d1_{d1}_d2_{d2}"
-    #                 out_day = model.new_bool_var(name)
-    #                 seq.append(out_day)
-    #                 model.add_bool_or(seq)
-    #                 cost_literals.append(out_day)
-    #                 if d2-d1 > soft_min:
-    #                     cost_coefficients.append(10 * soft_min)
-    #                 else:
-    #                     cost_coefficients.append(10 * (d2 - d1))
-
+    #     for d in range(month_days - window_size):
+    #         shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
+    #         works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
+    #         model.add(shifts_count == sum(works))
+    #
+    # window2_size = 5
+    # shifts_on_window2 = 2
+    # for e in range(num_employees):
+    #     for d in range(month_days - window2_size):
+    #         shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
+    #         works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
+    #         model.add(shifts_count == sum(works))
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
