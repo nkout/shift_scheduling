@@ -377,7 +377,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         night_works = []
         all_work = []
         desired_nights = 0
-        all_work_int = []
+        holiday_work = []
         for d in range(month_days):
             for dp in day_parts:
                 dp_idx = day_parts.index(dp)
@@ -393,19 +393,19 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
                 for s in part_shifts:
                     all_work.append(work[e, s, d])
-                    x = model.new_int_var(0, 1, "work_int_{e}_{s}_{d}")
-                    model.add(x == work[e, s, d])
-                    all_work_int.append(x)
 
                 if is_night_dp_idx(dp_idx):
                     for s in part_shifts:
                         night_works.append(work[e, s, d])
 
+                if is_holiday(d):
+                    for s in part_shifts:
+                        holiday_work.append(work[e, s, d])
 
 
-        #nights_sum = model.new_int_var(0, month_days, f"night_sum_{e}")
+        #define more than five, more than three
         all_sum = model.new_int_var(0, month_days, f"all_sum_{e}")
-        model.add(all_sum == sum(all_work_int))
+        model.add(all_sum == sum(all_work))
 
         more_than_five = model.new_bool_var(f"e_{e}_more_than_five")
         model.add(all_sum >= 5).only_enforce_if(more_than_five)
@@ -415,35 +415,21 @@ def solve_shift_scheduling(params: str, output_proto: str):
         model.add(all_sum > 3).only_enforce_if(more_than_three)
         model.add(all_sum <= 3).only_enforce_if(~more_than_three)
 
+        more_than_four = model.new_bool_var(f"e_{e}_more_than_four")
+        model.add(all_sum > 4).only_enforce_if(more_than_four)
+        model.add(all_sum <= 4).only_enforce_if(~more_than_four)
+
+        #night rules
         if can_do_nights(e) and desired_nights < 10:
             model.add(sum(night_works) < 4)
             model.add(sum(night_works) < 2).OnlyEnforceIf(~more_than_five)
             model.add(sum(night_works) < 1).OnlyEnforceIf(~more_than_three)
         elif can_do_nights(e):
             print("prefers nights " + str(e))
-        # if can_do_nights(e):
-        #     model.add()
 
-        hdays = []
-        for d in range(month_days):
-            if is_holiday(d):
-                for s in range(num_shifts):
-                    hdays.append(work[e,s,d])
-
-        model.add(sum(hdays) <= 2).only_enforce_if(~more_than_three)
-        model.add(sum(hdays) <= 3).only_enforce_if(~more_than_five)
-        model.add(sum(hdays) >= 1).only_enforce_if(~more_than_five)
-
-
-    #weekends
-    for e in range(num_employees):
-        my_holiday_shifts = []
-        x = model.new_int_var(0, 2, "my_holidays_int_{e}")
-        for d in range(month_days):
-            for s in range(num_shifts):
-                if is_holiday(d):
-                    my_holiday_shifts.append(work[e,s,d])
-        model.add(x == sum(my_holiday_shifts))
+        #holiday_rules
+        model.add(sum(holiday_work) <= 2).only_enforce_if(~more_than_four)
+        model.add(sum(holiday_work) <= 3)
 
 
     #shifts spread
