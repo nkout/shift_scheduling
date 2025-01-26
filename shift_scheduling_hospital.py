@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from operator import truediv
+
 import pandas
 from absl import app
 from absl import flags
@@ -224,6 +226,11 @@ def print_solution(solver, status, work):
         tmp.close()
         webbrowser.open('file://' + os.path.realpath(tmp.name))
 
+def can_do_nights(e):
+    for x in day_parts[2]:
+        if x in levels[employees[e][1]]:
+            return True
+    return False
 
 def negated_bounded_span(works, e, s1, s2, d, length):
 
@@ -278,6 +285,11 @@ def solve_shift_scheduling(params: str, output_proto: str):
     for e in range(num_employees):
         for d in range(month_days - 1):
             model.add_at_most_one(work[e, s, d_] for d_ in [d, d+1] for s in range(num_shifts))
+
+    #not close nights
+    for e in range(num_employees):
+        for d in range(month_days - 2):
+            model.add_at_most_one(work[e, s, d_] for d_ in [d, d+2] for s in [7,8])
 
     #exclude shifts based to employee capability
     for e in range(num_employees):
@@ -351,18 +363,53 @@ def solve_shift_scheduling(params: str, output_proto: str):
                     else:
                         cost_coefficients.append(10)
 
-    # for e in range(num_employees):
-    #     day_works = []
-    #     night_works = []
-    #     for d in range(month_days):
-    #         day_parts_idx = -1
-    #         for dp in day_parts:
-    #             day_parts_idx += 1
-    #             part_shifts = []
-    #             for s1 in range(num_shifts):
-    #                 if shifts[s1] in dp:
-    #                     part_shifts.append(s1)
-    #             employee_works = [work[e, s, d] for s in part_shifts]
+    for e in range(num_employees):
+        day_works = []
+        night_works = []
+        all_work = []
+        desired_nights = 0
+        for d in range(month_days):
+            day_parts_idx = -1
+            for dp in day_parts:
+                day_parts_idx += 1
+                part_shifts = []
+
+                if employees[e][3][d][day_parts_idx] == "WP" or employees[e][3][d][day_parts_idx] == "P":
+                    desired_nights += 1
+
+                for s1 in range(num_shifts):
+                    if shifts[s1] in dp:
+                        part_shifts.append(s1)
+                if day_parts_idx == 2:
+                    for s in part_shifts:
+                        night_works.append(work[e, s, d])
+                        all_work.append(work[e, s, d])
+                else:
+                    for s in part_shifts:
+                        day_works.append(work[e, s, d])
+                        all_work.append(work[e, s, d])
+
+        #print("e " + str(e) + "night " + str(can_do_nights(e)) + "desired " + str(desired_nights))
+
+        if can_do_nights(e) and desired_nights < 10:
+            if employees[e][2][1] <= 3:
+                model.add(sum(night_works) == 0)
+            model.add(sum(night_works) < 3)
+        # if can_do_nights(e):
+        #     model.add()
+
+    for e in range(num_employees):
+        hdays = []
+        for d in range(month_days):
+            if is_holiday(d):
+                for s in range(num_shifts):
+                    hdays.append(work[e,s,d])
+        if employees[e][2][1] <= 3:
+            model.add(sum(hdays) <=2)
+        else:
+            model.add(sum(hdays) >= 1)
+            model.add(sum(hdays) <= 3)
+
 
     #shifts spread
     out_days = []
