@@ -143,6 +143,9 @@ def is_night_dp_idx(idx):
 def is_night_shift(s):
     return shifts[s] in day_parts[2]
 
+def get_day_part_shifts(part_idx):
+    return [i for i in range(len(shifts)) if shifts[i] in day_parts[part_idx]]
+
 def validate_input():
     valid = True
 
@@ -376,7 +379,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
         model.add(employees_stats[e].shifts_count == sum(employee_works))
 
-        employees_stats[e].nights_count = model.new_int_var(0, 3,f"nights_count({e})")
+        employees_stats[e].nights_count = model.new_int_var(0, 2,f"nights_count({e})")
         night_works = [work[e, s, d] for d in range(month_days) for s in range(num_shifts) if is_night_shift(s)]
         model.add(employees_stats[e].nights_count == sum(night_works))
 
@@ -402,7 +405,6 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
         #night rules
         if can_do_nights(e) and not prefers_nights(e):
-            model.add(employees_stats[e].nights_count < 3)
             model.add(employees_stats[e].nights_count <= 2).OnlyEnforceIf(~employees_stats[e].more_than_four)
             model.add(employees_stats[e].nights_count < 1).OnlyEnforceIf(~employees_stats[e].more_than_three)
 
@@ -420,13 +422,8 @@ def solve_shift_scheduling(params: str, output_proto: str):
     ##positives - negatives
     for e in range(num_employees):
         for d in range(month_days):
-            for dp in day_parts:
-                dp_idx = day_parts.index(dp)
-                part_shifts = []
-                for s1 in range(num_shifts):
-                    if shifts[s1] in dp:
-                        part_shifts.append(s1)
-                employee_works = [work[e, s, d] for s in part_shifts]
+            for dp_idx in range(len(day_parts)):
+                employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
 
                 if get_employee_preference(e,d,dp_idx) == "P":
                     model.add(1 == sum(employee_works))
@@ -434,24 +431,20 @@ def solve_shift_scheduling(params: str, output_proto: str):
                 if get_employee_preference(e,d,dp_idx) == "N":
                     model.add(0 == sum(employee_works))
 
-                if get_employee_preference(e,d,dp_idx) == "WN":
+                if get_employee_preference(e,d,dp_idx) == "WN" or get_employee_preference(e,d,dp_idx) == "WP":
                     name = f"np_{e}_{d}_dp_{dp_idx}"
                     np = model.new_bool_var(name)
                     employee_works.append(~np)
-                    model.add_bool_or(employee_works)
+                    model.add_exactly_one(employee_works)
                     cost_literals.append(np)
-                    cost_coefficients.append(10)
 
-                if get_employee_preference(e,d,dp_idx) == "WP":
-                    name = f"p_{e}_{d}_dp_{dp_idx}"
-                    p = model.new_bool_var(name)
-                    employee_works.append(p)
-                    model.add_bool_or(employee_works)
-                    cost_literals.append(p)
-                    if is_night_dp_idx(dp_idx):
-                        cost_coefficients.append(100)
+                    if get_employee_preference(e, d, dp_idx) == "WN":
+                        cost_coefficients.append(-10)
                     else:
-                        cost_coefficients.append(10)
+                        if is_night_dp_idx(dp_idx):
+                            cost_coefficients.append(200)
+                        else:
+                            cost_coefficients.append(10)
 
     #shifts spread
     window_size = 12
