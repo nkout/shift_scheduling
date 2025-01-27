@@ -38,7 +38,6 @@ html_footer = '''
 
 '''
 
-num_employees = 50
 num_weeks = 4
 week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"]
@@ -79,10 +78,26 @@ prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal = 0
 
-employees = []
-
 #end options
 ################################################################################
+
+employees = []
+
+employees_stats = []
+
+class EmployeeStat:
+    def __init__(self):
+        self.shifts_count = None
+        self.nights_count = None
+        self.holidays_count = None
+        self.more_than_five = None
+        self.more_than_four = None
+        self.more_than_three = None
+        self.more_than_one_night = None
+        self.two_nights_on_four = None
+
+    def __str__(self):
+        return f'more_than_three {self.more_than_three}, more_than_five {self.more_than_five},  two_nights {self.two_nights}, two_nights_on_four {self.two_nights_on_four}'
 
 def is_holiday(d):
     if d == -1:
@@ -115,8 +130,18 @@ def get_employee_max_shifts(e):
 def get_employee_preference(e,d,i):
     return employees[e][3][d][i]
 
+def prefers_nights(e):
+    count = 0
+    for d in range(month_days):
+        if get_employee_preference(e,d,2) == "P" or get_employee_preference(e,d,2) == "WP":
+            count += 1
+    return count > 10
+
 def is_night_dp_idx(idx):
     return idx == 2
+
+def is_night_shift(s):
+    return shifts[s] in day_parts[2]
 
 def validate_input():
     valid = True
@@ -189,16 +214,28 @@ def validate_input():
     return valid
 
 def format_input(data):
+    global employees
+    employees = []
+
     for row in data:
         out = []
         out.append(row[0])
         out.append(row[1])
         out.append([int(row[2]), int(row[3])])
         prefs = []
+        count = 0
         for i in range(4, len(row), 3):
+            count += 1
             prefs.append([row[i],row[i+1],row[i+2]])
         out.append(prefs)
         employees.append(out)
+        employees_stats.append(EmployeeStat())
+
+        if month_days != count:
+            print("wrong pref data")
+            employees = []
+            return None
+
 
 
 def print_solution(solver, status, work):
@@ -231,7 +268,7 @@ def print_solution(solver, status, work):
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "HOLIDAYS"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "HOLIDAYS", "pen"]
     for e in range(num_employees):
         line = []
         sft = 0
@@ -249,6 +286,11 @@ def print_solution(solver, status, work):
         line.append(sft)
         line.append(nght)
         line.append(hdy)
+
+        if employees_stats[e].two_nights_on_four is not None:
+            line.append(solver.boolean_value(employees_stats[e].two_nights_on_four))
+        else:
+            line.append('-')
 
         out2.append(line)
 
@@ -302,7 +344,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
     close_range = 2
     for e in range(num_employees):
         for d in range(month_days - close_range):
-            model.add_at_most_one(work[e, s, d_] for d_ in [d, d+close_range] for s in get_night_shifts())
+            model.add_at_most_one(work[e, s, d_] for d_ in range(d, d + close_range + 1) for s in get_night_shifts())
 
     #exclude shifts based to employee capability
     for e in range(num_employees):
@@ -330,12 +372,50 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     #shifts num per employee
     for e in range(num_employees):
-        name = f"shifts_count({e})"
-
-
-        shifts_count = model.new_int_var(get_employee_min_shifts(e), get_employee_max_shifts(e), name)
+        employees_stats[e].shifts_count = model.new_int_var(get_employee_min_shifts(e), get_employee_max_shifts(e), f"shifts_count({e})")
         employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
-        model.add(shifts_count == sum(employee_works))
+        model.add(employees_stats[e].shifts_count == sum(employee_works))
+
+        employees_stats[e].nights_count = model.new_int_var(0, 3,f"nights_count({e})")
+        night_works = [work[e, s, d] for d in range(month_days) for s in range(num_shifts) if is_night_shift(s)]
+        model.add(employees_stats[e].nights_count == sum(night_works))
+
+        employees_stats[e].holidays_count = model.new_int_var(0, 3,f"holidays_count({e})")
+        holiday_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)  if is_holiday(d)]
+        model.add(employees_stats[e].holidays_count == sum(holiday_works))
+
+        employees_stats[e].more_than_five = model.new_bool_var(f"e_{e}_more_than_five")
+        model.add(employees_stats[e].shifts_count > 5).only_enforce_if(employees_stats[e].more_than_five)
+        model.add(employees_stats[e].shifts_count <= 5).only_enforce_if(~employees_stats[e].more_than_five)
+
+        employees_stats[e].more_than_four = model.new_bool_var(f"e_{e}_more_than_four")
+        model.add(employees_stats[e].shifts_count > 4).only_enforce_if(employees_stats[e].more_than_four)
+        model.add(employees_stats[e].shifts_count <= 4).only_enforce_if(~employees_stats[e].more_than_four)
+
+        employees_stats[e].more_than_three = model.new_bool_var(f"e_{e}_more_than_three")
+        model.add(employees_stats[e].shifts_count > 3).only_enforce_if(employees_stats[e].more_than_three)
+        model.add(employees_stats[e].shifts_count <= 3).only_enforce_if(~employees_stats[e].more_than_three)
+
+        employees_stats[e].more_than_one_night = model.new_bool_var(f"e_{e}_more_than_one_night")
+        model.add(employees_stats[e].nights_count > 1).only_enforce_if(employees_stats[e].more_than_one_night)
+        model.add(employees_stats[e].nights_count <= 1).only_enforce_if(~employees_stats[e].more_than_one_night)
+
+        #night rules
+        if can_do_nights(e) and not prefers_nights(e):
+            model.add(employees_stats[e].nights_count < 3)
+            model.add(employees_stats[e].nights_count <= 2).OnlyEnforceIf(~employees_stats[e].more_than_four)
+            model.add(employees_stats[e].nights_count < 1).OnlyEnforceIf(~employees_stats[e].more_than_three)
+
+            employees_stats[e].two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
+            model.add_exactly_one([~employees_stats[e].more_than_one_night, employees_stats[e].more_than_four, employees_stats[e].two_nights_on_four])
+            cost_literals.append(employees_stats[e].two_nights_on_four)
+            cost_coefficients.append(300)
+        elif can_do_nights(e):
+            print("prefers nights " + str(e))
+
+        #holiday_rules
+        model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_five)
+        model.add(employees_stats[e].holidays_count <= 3)
 
     ##positives - negatives
     for e in range(num_employees):
@@ -373,109 +453,22 @@ def solve_shift_scheduling(params: str, output_proto: str):
                     else:
                         cost_coefficients.append(10)
 
-    for e in range(num_employees):
-        night_works = []
-        all_work = []
-        desired_nights = 0
-        holiday_work = []
-        for d in range(month_days):
-            for dp in day_parts:
-                dp_idx = day_parts.index(dp)
-                part_shifts = []
-
-                if is_night_dp_idx(dp_idx) and ( get_employee_preference(e,d,dp_idx) == "WP" or get_employee_preference(e,d,dp_idx) == "P"):
-                    desired_nights += 1
-                    #print (f"e_{e}_night at day {d} ")
-
-                for s1 in range(num_shifts):
-                    if shifts[s1] in dp:
-                        part_shifts.append(s1)
-
-                for s in part_shifts:
-                    all_work.append(work[e, s, d])
-
-                if is_night_dp_idx(dp_idx):
-                    for s in part_shifts:
-                        night_works.append(work[e, s, d])
-
-                if is_holiday(d):
-                    for s in part_shifts:
-                        holiday_work.append(work[e, s, d])
-
-
-        #define more than five, more than three
-        all_sum = model.new_int_var(0, month_days, f"all_sum_{e}")
-        model.add(all_sum == sum(all_work))
-
-        more_than_five = model.new_bool_var(f"e_{e}_more_than_five")
-        model.add(all_sum > 5).only_enforce_if(more_than_five)
-        model.add(all_sum <= 5).only_enforce_if(~more_than_five)
-
-        more_than_four = model.new_bool_var(f"e_{e}_more_than_four")
-        model.add(all_sum > 4).only_enforce_if(more_than_four)
-        model.add(all_sum <= 4).only_enforce_if(~more_than_four)
-
-        more_than_three = model.new_bool_var(f"e_{e}_more_than_three")
-        model.add(all_sum > 3).only_enforce_if(more_than_three)
-        model.add(all_sum <= 3).only_enforce_if(~more_than_three)
-
-
-        night_sum = model.new_int_var(0, month_days, f"night_sum_{e}")
-        model.add(night_sum == sum(night_works))
-
-        more_than_one_night = model.new_bool_var(f"e_{e}_more_than_one_night")
-        model.add(night_sum > 1).only_enforce_if(more_than_one_night)
-        model.add(night_sum <= 1).only_enforce_if(~more_than_one_night)
-
-
-
-        #night rules
-        if can_do_nights(e) and desired_nights < 10:
-            model.add(sum(night_works) < 3)
-            #model.add(sum(night_works) >= 2).OnlyEnforceIf(more_eq_than_four)
-            model.add(sum(night_works) <= 2).OnlyEnforceIf(~more_than_four)
-            model.add(sum(night_works) < 1).OnlyEnforceIf(~more_than_three)
-
-            two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
-            model.add_exactly_one([~more_than_one_night, more_than_four, two_nights_on_four])
-            cost_literals.append(two_nights_on_four)
-            cost_coefficients.append(300)
-        elif can_do_nights(e):
-            print("prefers nights " + str(e))
-
-        #holiday_rules
-        model.add(sum(holiday_work) <= 2).only_enforce_if(~more_than_five)
-        model.add(sum(holiday_work) <= 3)
-
-
     #shifts spread
-    out_days = []
+    window_size = 12
+    shifts_on_window = 3
     for e in range(num_employees):
-        row = []
-        for d in range(month_days):
-            on_duty = [work[e, s, d] for s in range(num_shifts)]
-            name = f"out_e_{e}_d_{d}"
-            out_day = model.new_bool_var(name)
-            on_duty.append(out_day)
-            model.add_bool_or(on_duty)
-            row.append(out_day)
-        out_days.append(row)
+        for d in range(month_days - window_size):
+            shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
+            works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
+            model.add(shifts_count == sum(works))
 
-    # window_size = 12
-    # shifts_on_window = 3
-    # for e in range(num_employees):
-    #     for d in range(month_days - window_size):
-    #         shifts_count = model.new_int_var(0, shifts_on_window, f"window_e_{e}_d_{d}")
-    #         works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
-    #         model.add(shifts_count == sum(works))
-    #
-    # window2_size = 5
-    # shifts_on_window2 = 2
-    # for e in range(num_employees):
-    #     for d in range(month_days - window2_size):
-    #         shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
-    #         works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
-    #         model.add(shifts_count == sum(works))
+    window2_size = 5
+    shifts_on_window2 = 2
+    for e in range(num_employees):
+        for d in range(month_days - window2_size):
+            shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
+            works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
+            model.add(shifts_count == sum(works))
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
