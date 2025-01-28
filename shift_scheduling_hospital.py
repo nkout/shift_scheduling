@@ -16,9 +16,6 @@ from tabulate import tabulate
 _OUTPUT_PROTO = flags.DEFINE_string(
     "output_proto", "", "Output file to write the cp_model proto to."
 )
-_PARAMS = flags.DEFINE_string(
-    "params", "max_time_in_seconds:20.0", "Sat solver parameters."
-)
 
 html_header = '''<!DOCTYPE html>
 <html>
@@ -321,7 +318,7 @@ def can_do_nights(e):
     return False
 
 
-def solve_shift_scheduling(params: str, output_proto: str):
+def solve_shift_scheduling(output_proto: str):
     """Solves the shift scheduling problem."""
     num_employees = len(employees)
     num_shifts = len(shifts)
@@ -364,7 +361,7 @@ def solve_shift_scheduling(params: str, output_proto: str):
         for s in range(num_shifts):
             for d in range(month_days):
                 if shifts[s] not in get_employee_capable_shifts(e):
-                    model.add(work[e, s, d] == 0)
+                    model.add(work[e, s, d] == False)
 
     #force all shifts to be covered
     total_shifts = 0
@@ -378,10 +375,11 @@ def solve_shift_scheduling(params: str, output_proto: str):
             for s in range(num_shifts):
                 works = [work[e, s, d] for e in range(num_employees)]
                 if shifts[s] in day_shifts:
-                    model.add(1 == sum(works))
+                    model.add_exactly_one(works)
                     total_shifts += 1
                 else:
-                    model.add(0 == sum(works))
+                    for zero_work in works:
+                        model.add(zero_work == False)
 
     #shifts num per employee
     for e in range(num_employees):
@@ -499,8 +497,10 @@ def solve_shift_scheduling(params: str, output_proto: str):
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    if params:
-        text_format.Parse(params, solver.parameters)
+    solver.parameters.max_time_in_seconds = 20
+    solver.parameters.log_search_progress = True
+    solver.parameters.log_to_stdout = True
+
     solution_printer = cp_model.ObjectiveSolutionPrinter()
     status = solver.solve(model, solution_printer)
 
@@ -510,6 +510,15 @@ def solve_shift_scheduling(params: str, output_proto: str):
         print_solution(solver, status, work)
     else:
         print("NOT SOLVED :-(")
+
+    if status == cp_model.INFEASIBLE:
+        # print infeasible boolean variables index
+        print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
+
+        # print infeasible boolean variables
+        infeasibles = solver.SufficientAssumptionsForInfeasibility()
+        for i in infeasibles:
+            print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
 
 def main(_):
     data = pandas.read_csv('data.csv').fillna("I")
@@ -522,7 +531,7 @@ def main(_):
 
     for e in employees:
         print(e)
-    solve_shift_scheduling(_PARAMS.value, _OUTPUT_PROTO.value)
+    solve_shift_scheduling(_OUTPUT_PROTO.value)
 
 
 if __name__ == "__main__":
