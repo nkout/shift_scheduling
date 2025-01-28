@@ -51,7 +51,7 @@ week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
 holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
 
 levels = {
-    "A": ["M1", "A1", "N1", "A2"],
+    "A": ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"],
     "B": ["M2", "A2", "A3", "N2", "IM", "IA"],
     "C": ["M2", "A3", "N2", "IM", "IA"],
     "D": ["M2", "A3", "IM", "IA"],
@@ -130,12 +130,17 @@ def get_employee_max_shifts(e):
 def get_employee_preference(e,d,i):
     return employees[e][3][d][i]
 
-def prefers_nights(e):
+def prefered_nights(e):
     count = 0
     for d in range(month_days):
         if get_employee_preference(e,d,2) == "P" or get_employee_preference(e,d,2) == "WP":
-            count += 1
-    return count > 10
+            if get_employee_preference(e,d,1) != "P" and get_employee_preference(e,d,1) != "WP":
+                if get_employee_preference(e, d, 0) != "P" and get_employee_preference(e, d, 0) != "WP":
+                    count += 1
+    return count
+
+def prefers_nights(e):
+    return prefered_nights(e) > 10
 
 def is_night_dp_idx(idx):
     return idx == 2
@@ -338,6 +343,11 @@ def solve_shift_scheduling(params: str, output_proto: str):
             for d in range(month_days):
                 work[e, s, d] = model.new_bool_var(f"work{e}_{s}_{d}")
 
+    # Exactly one shift per day
+    # for e in range(num_employees):
+    #     for d in range(month_days):
+    #         model.add_at_most_one(work[e, s, d] for s in range(num_shifts))
+
     # Exactly one shift per 2 days
     for e in range(num_employees):
         for d in range(month_days - 1):
@@ -379,7 +389,12 @@ def solve_shift_scheduling(params: str, output_proto: str):
         employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
         model.add(employees_stats[e].shifts_count == sum(employee_works))
 
-        employees_stats[e].nights_count = model.new_int_var(0, 2,f"nights_count({e})")
+        if not prefers_nights(e):
+            max_nights = 2
+        else:
+            max_nights = get_employee_max_shifts(e)
+
+        employees_stats[e].nights_count = model.new_int_var(0, max_nights,f"nights_count({e})")
         night_works = [work[e, s, d] for d in range(month_days) for s in range(num_shifts) if is_night_shift(s)]
         model.add(employees_stats[e].nights_count == sum(night_works))
 
