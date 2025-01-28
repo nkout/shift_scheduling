@@ -520,7 +520,8 @@ def main(_):
     list_data = data.values.tolist()
     format_input(list_data)
 
-    print(employees)
+    for e in employees:
+        print(e)
     solve_shift_scheduling(_PARAMS.value, _OUTPUT_PROTO.value)
 
 
