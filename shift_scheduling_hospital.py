@@ -427,14 +427,13 @@ def solve_shift_scheduling(output_proto: str):
         model.add(employees_stats[e].nights_count <= 0).only_enforce_if(~employees_stats[e].has_night)
 
         # maybe needed to avoid  meaningless search
-        model.add(employees_stats[e].more_than_four == True).only_enforce_if(employees_stats[e].more_than_five)
-        model.add(employees_stats[e].more_than_three == True).only_enforce_if(employees_stats[e].more_than_five)
-        model.add(employees_stats[e].more_than_three == True).only_enforce_if(employees_stats[e].more_than_four)
-        model.add(employees_stats[e].more_than_four == False).only_enforce_if(~employees_stats[e].more_than_three)
-        model.add(employees_stats[e].more_than_five == False).only_enforce_if(~employees_stats[e].more_than_three)
-        model.add(employees_stats[e].more_than_five == False).only_enforce_if(~employees_stats[e].more_than_four)
-        model.add(employees_stats[e].has_night == True).only_enforce_if(employees_stats[e].more_than_one_night)
-        model.add(employees_stats[e].more_than_one_night == False).only_enforce_if(~employees_stats[e].has_night)
+        model.add_implication(employees_stats[e].more_than_five, employees_stats[e].more_than_four)
+        model.add_implication(employees_stats[e].more_than_four, employees_stats[e].more_than_three)
+        model.add_implication(~employees_stats[e].more_than_three, ~employees_stats[e].more_than_four)
+        model.add_implication(~employees_stats[e].more_than_four, ~employees_stats[e].more_than_five)
+
+        model.add_implication(employees_stats[e].more_than_one_night, employees_stats[e].has_night)
+        model.add_implication(~employees_stats[e].has_night, ~employees_stats[e].more_than_one_night)
 
         #night rules
         if can_do_nights(e) and not prefers_nights(e):
@@ -444,12 +443,12 @@ def solve_shift_scheduling(output_proto: str):
             employees_stats[e].two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
             model.add_exactly_one([~employees_stats[e].more_than_one_night, employees_stats[e].more_than_four, employees_stats[e].two_nights_on_four])
             cost_literals.append(employees_stats[e].two_nights_on_four)
-            cost_coefficients.append(300)
+            cost_coefficients.append(30)
 
             employees_stats[e].one_night_on_three = model.new_bool_var(f"e_{e}_one_night_on_three")
             model.add_exactly_one([~employees_stats[e].has_night, employees_stats[e].more_than_three, employees_stats[e].one_night_on_three])
             cost_literals.append(employees_stats[e].one_night_on_three)
-            cost_coefficients.append(250)
+            cost_coefficients.append(30)
         elif can_do_nights(e):
             model.add(employees_stats[e].shifts_count - employees_stats[e].nights_count >= 0)
             print("prefers nights " + str(e) + " " + str(prefered_nights(e)))
@@ -472,19 +471,19 @@ def solve_shift_scheduling(output_proto: str):
                         model.add(w == 0)
 
                 if get_employee_preference(e,d,dp_idx) == "WN" or get_employee_preference(e,d,dp_idx) == "WP":
-                    name = f"np_{e}_{d}_dp_{dp_idx}"
-                    np = model.new_bool_var(name)
-                    employee_works.append(~np)
+                    name = f"np_{e}_{d}_wpn_{dp_idx}"
+                    wpn = model.new_bool_var(name)
+                    employee_works.append(wpn)
                     model.add_exactly_one(employee_works)
-                    cost_literals.append(np)
+                    cost_literals.append(wpn)
 
                     if get_employee_preference(e, d, dp_idx) == "WN":
-                        cost_coefficients.append(-10)
+                        cost_coefficients.append(-30)
                     else:
                         if is_night_dp_idx(dp_idx):
-                            cost_coefficients.append(200)
+                            cost_coefficients.append(150)
                         else:
-                            cost_coefficients.append(10)
+                            cost_coefficients.append(15)
 
     #shifts spread
     window_size = 12
@@ -527,10 +526,21 @@ def solve_shift_scheduling(output_proto: str):
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 20
     solver.parameters.log_search_progress = True
-    solver.parameters.log_to_stdout = True
+    solver.parameters.enumerate_all_solutions = True
+    #solver.parameters.num_search_workers = 8
+    #solver.parameters.log_to_stdout = True
+    #solver.parameters.linearization_level = 0
 
     solution_printer = cp_model.ObjectiveSolutionPrinter()
     status = solver.solve(model, solution_printer)
+
+    print("Status = %s" % solver.status_name(status))
+
+    print("Statistics")
+    print("  - conflicts : %i" % solver.num_conflicts)
+    print("  - branches  : %i" % solver.num_branches)
+    print("  - wall time : %f s" % solver.wall_time)
+    print("  - number of solutions found: %i" % solution_printer.solution_count())
 
     # Print solution.
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
