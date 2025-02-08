@@ -451,23 +451,25 @@ def solve_shift_scheduling(output_proto: str):
             cost_literals.append(employees_stats[e].one_night_on_three)
             cost_coefficients.append(250)
         elif can_do_nights(e):
-            print("prefers nights " + str(e))
+            model.add(employees_stats[e].shifts_count - employees_stats[e].nights_count >= 0)
+            print("prefers nights " + str(e) + " " + str(prefered_nights(e)))
 
         #holiday_rules
         model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_five)
         model.add(employees_stats[e].holidays_count <= 3)
 
-    ##positives - negatives
+    #positives - negatives
     for e in range(num_employees):
         for d in range(month_days):
             for dp_idx in range(len(day_parts)):
                 employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
 
                 if get_employee_preference(e,d,dp_idx) == "P":
-                    model.add(1 == sum(employee_works))
+                    model.add_exactly_one(employee_works)
 
                 if get_employee_preference(e,d,dp_idx) == "N":
-                    model.add(0 == sum(employee_works))
+                    for w in employee_works:
+                        model.add(w == 0)
 
                 if get_employee_preference(e,d,dp_idx) == "WN" or get_employee_preference(e,d,dp_idx) == "WP":
                     name = f"np_{e}_{d}_dp_{dp_idx}"
