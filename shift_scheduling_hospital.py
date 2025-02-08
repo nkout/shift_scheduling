@@ -92,6 +92,7 @@ class EmployeeStat:
         self.more_than_three = None
         self.more_than_one_night = None
         self.two_nights_on_four = None
+        self.one_night_on_three = None
 
     def __str__(self):
         return f'more_than_three {self.more_than_three}, more_than_five {self.more_than_five},  two_nights {self.two_nights}, two_nights_on_four {self.two_nights_on_four}'
@@ -273,7 +274,7 @@ def print_solution(solver, status, work):
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "HOLIDAYS", "pen"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "HOLIDAYS", "4/2", "3/1"]
     for e in range(num_employees):
         line = []
         sft = 0
@@ -294,6 +295,11 @@ def print_solution(solver, status, work):
 
         if employees_stats[e].two_nights_on_four is not None:
             line.append(solver.boolean_value(employees_stats[e].two_nights_on_four))
+        else:
+            line.append('-')
+
+        if employees_stats[e].one_night_on_three is not None:
+            line.append(solver.boolean_value(employees_stats[e].one_night_on_three))
         else:
             line.append('-')
 
@@ -416,15 +422,34 @@ def solve_shift_scheduling(output_proto: str):
         model.add(employees_stats[e].nights_count > 1).only_enforce_if(employees_stats[e].more_than_one_night)
         model.add(employees_stats[e].nights_count <= 1).only_enforce_if(~employees_stats[e].more_than_one_night)
 
+        employees_stats[e].has_night = model.new_bool_var(f"e_{e}_has_night")
+        model.add(employees_stats[e].nights_count > 0).only_enforce_if(employees_stats[e].has_night)
+        model.add(employees_stats[e].nights_count <= 0).only_enforce_if(~employees_stats[e].has_night)
+
+        # maybe needed to avoid  meaningless search
+        model.add(employees_stats[e].more_than_four == True).only_enforce_if(employees_stats[e].more_than_five)
+        model.add(employees_stats[e].more_than_three == True).only_enforce_if(employees_stats[e].more_than_five)
+        model.add(employees_stats[e].more_than_three == True).only_enforce_if(employees_stats[e].more_than_four)
+        model.add(employees_stats[e].more_than_four == False).only_enforce_if(~employees_stats[e].more_than_three)
+        model.add(employees_stats[e].more_than_five == False).only_enforce_if(~employees_stats[e].more_than_three)
+        model.add(employees_stats[e].more_than_five == False).only_enforce_if(~employees_stats[e].more_than_four)
+        model.add(employees_stats[e].has_night == True).only_enforce_if(employees_stats[e].more_than_one_night)
+        model.add(employees_stats[e].more_than_one_night == False).only_enforce_if(~employees_stats[e].has_night)
+
         #night rules
         if can_do_nights(e) and not prefers_nights(e):
-            model.add(employees_stats[e].nights_count <= 2).OnlyEnforceIf(~employees_stats[e].more_than_four)
-            model.add(employees_stats[e].nights_count < 1).OnlyEnforceIf(~employees_stats[e].more_than_three)
+            #model.add(employees_stats[e].nights_count <= 2).OnlyEnforceIf(~employees_stats[e].more_than_four)
+            model.add(employees_stats[e].shifts_count - employees_stats[e].nights_count >= 2)
 
             employees_stats[e].two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
             model.add_exactly_one([~employees_stats[e].more_than_one_night, employees_stats[e].more_than_four, employees_stats[e].two_nights_on_four])
             cost_literals.append(employees_stats[e].two_nights_on_four)
             cost_coefficients.append(300)
+
+            employees_stats[e].one_night_on_three = model.new_bool_var(f"e_{e}_one_night_on_three")
+            model.add_exactly_one([~employees_stats[e].has_night, employees_stats[e].more_than_three, employees_stats[e].one_night_on_three])
+            cost_literals.append(employees_stats[e].one_night_on_three)
+            cost_coefficients.append(250)
         elif can_do_nights(e):
             print("prefers nights " + str(e))
 
@@ -485,7 +510,8 @@ def solve_shift_scheduling(output_proto: str):
 
     # Objective
     model.minimize(
-        sum(cost_literals[i] * cost_coefficients[i] for i in range(len(cost_literals)))
+        #sum(cost_literals[i] * cost_coefficients[i] for i in range(len(cost_literals)))
+        cp_model.LinearExpr.weighted_sum(cost_literals, cost_coefficients)
         #+
         #sum(obj_int_vars[i] * obj_int_coeffs[i] for i in range(len(obj_int_vars)))
     )
