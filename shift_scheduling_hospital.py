@@ -74,6 +74,7 @@ public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal = 0
+hot_periods = [[1,2,3,4],[10,11,12,13]]
 
 #end options
 ################################################################################
@@ -115,6 +116,9 @@ def get_night_shifts():
 
 def get_employee_name(e):
     return employees[e][0]
+
+def get_employee_level(e):
+    return employees[e][1]
 
 def get_employee_capable_shifts(e):
     return levels[employees[e][1]]
@@ -312,7 +316,7 @@ def print_solution(solver, status, work):
         sft = 0
         nght = 0
         hdy = 0
-        line.append(get_employee_name(e))
+        line.append(f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}]")
         for s in range(num_shifts):
             for d in range(month_days):
                 if solver.boolean_value(work[e, s, d]):
@@ -378,7 +382,7 @@ def solve_shift_scheduling(output_proto: str):
             for d in range(month_days):
                 work[e, s, d] = model.new_bool_var(f"work{e}_{s}_{d}")
 
-    # Exactly one shift per day
+    # #Exactly one shift per day
     # for e in range(num_employees):
     #     for d in range(month_days):
     #         model.add_at_most_one(work[e, s, d] for s in range(num_shifts))
@@ -531,7 +535,7 @@ def solve_shift_scheduling(output_proto: str):
 
 
     #shifts spread
-    window_size = 7
+    window_size = 8
     shifts_on_window = 3
     for e in range(num_employees):
         for d in range(month_days - window_size):
@@ -546,6 +550,22 @@ def solve_shift_scheduling(output_proto: str):
             shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
             works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
             model.add(shifts_count == sum(works))
+
+    #hot periods
+    for e in range(num_employees):
+        e_hot_periods=[]
+        for h in range(len(hot_periods)):
+            hot_works=[]
+            for d1 in hot_periods[h]:
+                d = d1 - 1
+                for s in range(num_shifts):
+                    hot_works.append(work[e, s, d])
+            hot_work_var = model.new_bool_var(f"hot_work_e_{e}_h_{h}")
+            model.add(sum(hot_works) > 0).only_enforce_if(hot_work_var)
+            model.add(sum(hot_works) == 0).only_enforce_if(~hot_work_var)
+            e_hot_periods.append(hot_work_var)
+        model.add_at_most_one(e_hot_periods)
+
 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
