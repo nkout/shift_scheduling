@@ -137,6 +137,38 @@ def prefered_nights(e):
                     count += 1
     return count
 
+def get_pos_prefs(e):
+    count = 0
+    for d in range(month_days):
+        for i in range(3):
+            if get_employee_preference(e,d,i) == "WP":
+                count += 1
+    return count
+
+def get_neg_prefs(e):
+    count = 0
+    for d in range(month_days):
+        for i in range(3):
+            if get_employee_preference(e,d,i) == "WN":
+                count += 1
+    return count
+
+def get_neg(e):
+    count = 0
+    for d in range(month_days):
+        for i in range(3):
+            if get_employee_preference(e,d,i) == "N":
+                count += 1
+    return count
+
+def get_pos(e):
+    count = 0
+    for d in range(month_days):
+        for i in range(3):
+            if get_employee_preference(e,d,i) == "P":
+                count += 1
+    return count
+
 def prefers_nights(e):
     return prefered_nights(e) > 10
 
@@ -435,6 +467,9 @@ def solve_shift_scheduling(output_proto: str):
         model.add_implication(employees_stats[e].more_than_one_night, employees_stats[e].has_night)
         model.add_implication(~employees_stats[e].has_night, ~employees_stats[e].more_than_one_night)
 
+        model.add(employees_stats[e].shifts_count >= employees_stats[e].nights_count)
+        model.add(employees_stats[e].shifts_count >= employees_stats[e].holidays_count)
+
         #night rules
         if can_do_nights(e) and not prefers_nights(e):
             #model.add(employees_stats[e].nights_count <= 2).OnlyEnforceIf(~employees_stats[e].more_than_four)
@@ -443,14 +478,13 @@ def solve_shift_scheduling(output_proto: str):
             employees_stats[e].two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
             model.add_exactly_one([~employees_stats[e].more_than_one_night, employees_stats[e].more_than_four, employees_stats[e].two_nights_on_four])
             cost_literals.append(employees_stats[e].two_nights_on_four)
-            cost_coefficients.append(30)
+            cost_coefficients.append(60)
 
             employees_stats[e].one_night_on_three = model.new_bool_var(f"e_{e}_one_night_on_three")
             model.add_exactly_one([~employees_stats[e].has_night, employees_stats[e].more_than_three, employees_stats[e].one_night_on_three])
             cost_literals.append(employees_stats[e].one_night_on_three)
-            cost_coefficients.append(30)
+            cost_coefficients.append(50)
         elif can_do_nights(e):
-            model.add(employees_stats[e].shifts_count - employees_stats[e].nights_count >= 0)
             print("prefers nights " + str(e) + " " + str(prefered_nights(e)))
 
         #holiday_rules
@@ -459,34 +493,45 @@ def solve_shift_scheduling(output_proto: str):
 
     #positives - negatives
     for e in range(num_employees):
+        pos_prefs = get_pos_prefs(e)
+        neg_prefs = get_neg_prefs(e)
+        negs = get_neg(e)
+        pos = get_pos(e)
+
         for d in range(month_days):
             for dp_idx in range(len(day_parts)):
                 employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
 
-                if get_employee_preference(e,d,dp_idx) == "P":
+                slot_pref = get_employee_preference(e, d, dp_idx)
+
+                if slot_pref == "P":
                     model.add_exactly_one(employee_works)
 
-                if get_employee_preference(e,d,dp_idx) == "N":
+                if slot_pref == "N":
                     for w in employee_works:
                         model.add(w == 0)
 
-                if get_employee_preference(e,d,dp_idx) == "WN" or get_employee_preference(e,d,dp_idx) == "WP":
-                    name = f"np_{e}_{d}_wpn_{dp_idx}"
-                    wpn = model.new_bool_var(name)
-                    employee_works.append(wpn)
+                if slot_pref == "WN" or slot_pref == "WP":
+                    name = f"worked_{e}_{d}_{dp_idx}"
+                    worked = model.new_bool_var(name)
+                    employee_works.append(~worked)
                     model.add_exactly_one(employee_works)
-                    cost_literals.append(wpn)
+                    cost_literals.append(worked)
 
-                    if get_employee_preference(e, d, dp_idx) == "WN":
-                        cost_coefficients.append(-30)
+                    avail_days = (3*month_days - neg_prefs - negs - pos_prefs - pos) //3
+                    weight = avail_days // 2
+                    if weight <= 0:
+                        weight = 1
+                    if slot_pref == "WN":
+                        cost_coefficients.append(weight)
                     else:
-                        if is_night_dp_idx(dp_idx):
-                            cost_coefficients.append(150)
-                        else:
-                            cost_coefficients.append(15)
+                        if is_night_dp_idx(dp_idx) and prefers_nights(e):
+                            weight *= 3
+                        cost_coefficients.append(-weight)
+
 
     #shifts spread
-    window_size = 12
+    window_size = 7
     shifts_on_window = 3
     for e in range(num_employees):
         for d in range(month_days - window_size):
@@ -526,10 +571,12 @@ def solve_shift_scheduling(output_proto: str):
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 20
     solver.parameters.log_search_progress = True
-    solver.parameters.enumerate_all_solutions = True
-    #solver.parameters.num_search_workers = 8
+    #solver.parameters.enumerate_all_solutions = True
+    solver.parameters.num_search_workers = 8
     #solver.parameters.log_to_stdout = True
     #solver.parameters.linearization_level = 0
+    #solver.parameters.cp_model_presolve = True
+    #solver.parameters.cp_model_probing_level = 0
 
     solution_printer = cp_model.ObjectiveSolutionPrinter()
     status = solver.solve(model, solution_printer)
