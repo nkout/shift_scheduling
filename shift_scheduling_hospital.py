@@ -67,13 +67,13 @@ shift_categories = {
 # Data
 ################################################################################
 #start options
-month_first_day = "Sa"
+month_first_day = "Th"
 month_days = 31
-public_holidays = [3, 25]
+public_holidays = [1,]
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
-month_starts_with_internal = 0
-hot_periods = [[1,2,3], [22,23,24,25]]
+month_starts_with_internal = 1
+hot_periods = []
 
 #end options
 ################################################################################
@@ -317,6 +317,12 @@ def html_mark_if(s, cond):
     else:
         return s
 
+def in_brackets_if(s, cond):
+    if cond:
+        return '[' + s + ']'
+    else:
+        return s
+
 def print_solution(solver, status, work):
     num_employees = len(employees)
     num_shifts = len(shifts)
@@ -359,7 +365,8 @@ def print_solution(solver, status, work):
         for d in range(month_days):
             for s in range(num_shifts):
                 if solver.boolean_value(work[e, s, d]):
-                    days.append(html_mark_if( html_bold_if(str(d+1),is_holiday(d)), is_night_shift(s)))
+                    #days.append(in_brackets_if( html_bold_if(str(d+1),is_holiday(d)), is_night_shift(s)))
+                    days.append(html_bold_if(in_brackets_if(str(d+1),is_night_shift(s)),is_holiday(d)))
                     sft += 1
                     if is_holiday(d):
                         hdy +=1
@@ -710,7 +717,7 @@ def solve_shift_scheduling(output_proto: str):
             print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
 
 def main(_):
-    data = pandas.read_csv('data.march.3.csv').fillna("I")
+    data = pandas.read_csv('data.may.csv').fillna("I")
 
 
     # Display the modified DataFrame
