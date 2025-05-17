@@ -574,6 +574,10 @@ def solve_shift_scheduling(output_proto: str):
         model.add(employees_stats[e].nights_count <= 0).only_enforce_if(~employees_stats[e].has_night)
 
         #holiday vars
+        employees_stats[e].more_than_one_holiday = model.new_bool_var(f"e_{e}_more_than_one_holiday")
+        model.add(employees_stats[e].holidays_count > 1).only_enforce_if(employees_stats[e].more_than_one_holiday)
+        model.add(employees_stats[e].holidays_count <= 1).only_enforce_if(~employees_stats[e].more_than_one_holiday)
+
         employees_stats[e].more_than_two_holidays = model.new_bool_var(f"e_{e}_more_than_two_holidays")
         model.add(employees_stats[e].holidays_count > 2).only_enforce_if(employees_stats[e].more_than_two_holidays)
         model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_two_holidays)
@@ -612,6 +616,11 @@ def solve_shift_scheduling(output_proto: str):
         model.add_bool_or(~employees_stats[e].more_than_two_holidays, employees_stats[e].more_than_five ,employees_stats[e].three_holidays_less_six)
         cost_literals.append(employees_stats[e].three_holidays_less_six)
         cost_coefficients.append(300)
+
+        employees_stats[e].two_holidays_less_three = model.new_bool_var(f"e_{e}_two_holidays_less_four")
+        model.add_bool_or(~employees_stats[e].more_than_one_holiday, employees_stats[e].more_than_three ,employees_stats[e].two_holidays_less_three)
+        cost_literals.append(employees_stats[e].three_holidays_less_six)
+        cost_coefficients.append(150)
 
         # cost_literals.append(employees_stats[e].more_than_six)
         # cost_coefficients.append(-30)
