@@ -450,6 +450,28 @@ def solve_shift_scheduling(output_proto: str):
     #     for d in range(month_days - 1):
     #         model.add_at_most_one(work[e, s, d_] for d_ in [d, d+1] for s in range(num_shifts))
 
+    #not close shifts
+    for e in range(num_employees):
+        penalties = [200, 50, 40, 30, 10, 10, 5]
+        for index, value in enumerate(penalties):
+            for d in range(month_days - index - 1):
+                close_work_var = model.NewBoolVar(f'close_work_{e}_{d}_{index}')
+                work_list = [employees_stats[e].works_at_day[d], employees_stats[e].works_at_day[d + index  + 1]]
+                reverse_work_list = [~employees_stats[e].works_at_day[d], ~employees_stats[e].works_at_day[d + index + 1]]
+                #print(f'start {d} end {d + index + 1}')
+                for i in range(d+1, d + index + 1):
+                    #print(f"int {i}")
+                    work_list.append(~employees_stats[e].works_at_day[i])
+                    reverse_work_list.append(employees_stats[e].works_at_day[i])
+                model.AddBoolAnd(work_list).OnlyEnforceIf(close_work_var)
+                model.AddBoolOr(reverse_work_list).OnlyEnforceIf(~close_work_var)
+
+                cost_literals.append(close_work_var)
+                cost_coefficients.append(value)
+
+
+        #break
+
     #not close nights
     close_range = 2
     for e in range(num_employees):
@@ -688,7 +710,7 @@ def solve_shift_scheduling(output_proto: str):
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20
+    solver.parameters.max_time_in_seconds = 40
     #solver.parameters.log_search_progress = True
     #solver.parameters.enumerate_all_solutions = True
     #solver.parameters.num_search_workers = 8
