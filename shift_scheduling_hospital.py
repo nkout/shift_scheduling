@@ -47,7 +47,8 @@ week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
 holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
 
 levels = {
-    "A": ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
+    "AA": ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
+    "A": ["M1", "M2", "A1", "A2", "A3", "N1", "N2", "IM", "IA"],
     "B": ["M2", "A2", "A3", "N2", "IM", "IA"],
     "C": ["M2", "A3", "N2", "IM", "IA"],
     "D": ["M2", "A3", "IM", "IA"],
@@ -67,13 +68,14 @@ shift_categories = {
 # Data
 ################################################################################
 #start options
-month_first_day = "Th"
-month_days = 31
-public_holidays = [1,]
+month_first_day = "Su"
+month_days = 30
+public_holidays = [9,]
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
-month_starts_with_internal = 1
+month_starts_with_internal = 0
 hot_periods = []
+filename = 'data.june.csv'
 
 #end options
 ################################################################################
@@ -473,7 +475,7 @@ def solve_shift_scheduling(output_proto: str):
 
     #not close shifts
     for e in range(num_employees):
-        penalties = [200, 50, 45, 40, 35, 10, 5, 4]
+        penalties = [2000, 50, 45, 40, 35, 10, 5, 4]
         for index, value in enumerate(penalties):
             for d in range(month_days - index - 1):
                 close_work_var = model.NewBoolVar(f'close_work_{e}_{d}_{index}')
@@ -598,6 +600,12 @@ def solve_shift_scheduling(output_proto: str):
             model.add_bool_or(~employees_stats[e].has_night, employees_stats[e].more_than_three, employees_stats[e].one_night_on_three)
             cost_literals.append(employees_stats[e].one_night_on_three)
             cost_coefficients.append(400 / (get_employee_extra_nights(e) + 1))
+
+            # # TODO maybe not needed
+            # employees_stats[e].three_nights_on_seven = model.new_bool_var(f"e_{e}_three_nights_on_seven")
+            # model.add_bool_or(~employees_stats[e].more_than_two_nights, employees_stats[e].more_than_six, ~employees_stats[e].three_nights_on_seven)
+            # cost_literals.append(employees_stats[e].three_nights_on_seven)
+            # cost_coefficients.append(-1000)
 
         #holiday_rules
         # model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(employees_stats[e].more_than_six)
@@ -736,7 +744,7 @@ def solve_shift_scheduling(output_proto: str):
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 40
+    solver.parameters.max_time_in_seconds = 120
     #solver.parameters.log_search_progress = True
     #solver.parameters.enumerate_all_solutions = True
     #solver.parameters.num_search_workers = 8
@@ -773,7 +781,7 @@ def solve_shift_scheduling(output_proto: str):
             print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
 
 def main(_):
-    data = pandas.read_csv('data.may.csv').fillna("I")
+    data = pandas.read_csv(filename).fillna("I")
 
 
     # Display the modified DataFrame
