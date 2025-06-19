@@ -528,16 +528,30 @@ def solve_shift_scheduling(output_proto: str):
         "prefix" : "night",
         "applicable": lambda e: can_do_nights(e) and get_employee_max_shifts(e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "limits" : {
-            0: ((0, 0, 0), (0, 0, 0)),
-            1: ((0, 0, 0), (0, 1, 800)),
-            2: ((0, 0, 0), (0, 1, 800)),
-            3: ((0, 0 ,0), (0, 1, 800)),
-            4: ((0, 0, 0), (1, 2, 800)),
-            5: ((0, 0, 0), (2, 3, 800)),
-            6: ((0, 0, 0), (2, 3, 800)),
-            7: ((0, 0, 0), (3, 3, 800)),
-        }
+        "index" : lambda e: get_employee_extra_nights(e),
+        "limits" : [
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (0, 1, 800)),
+                2: ((0, 0, 0), (0, 1, 800)),
+                3: ((0, 0 ,0), (0, 1, 800)),
+                4: ((0, 0, 0), (1, 2, 800)),
+                5: ((0, 0, 0), (2, 3, 800)),
+                6: ((0, 0, 0), (2, 3, 800)),
+                7: ((0, 0, 0), (3, 3, 800)),
+            },
+
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (0, 1, 800)),
+                2: ((0, 0, 0), (1, 1, 800)),
+                3: ((0, 0, 0), (1, 1, 800)),
+                4: ((0, 0, 0), (2, 2, 800)),
+                5: ((0, 0, 0), (3, 3, 800)),
+                6: ((0, 0, 0), (3, 3, 800)),
+                7: ((0, 0, 0), (3, 3, 800)),
+            },
+        ]
     }
 
     for e in range(num_employees):
@@ -562,25 +576,24 @@ def solve_shift_scheduling(output_proto: str):
             model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_employee_works))
 
             for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
-                soft_lim, hard_lim, penalty = specific_input["limits"][shift_count][1]
+                soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
 
                 soft_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
                 hard_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{hard_lim}'
 
-                if soft_lim > 0 and not soft_var_name in employees_stats[e].count_vars:
+                if soft_var_name not in employees_stats[e].count_vars:
                     employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
                     model.add(employees_stats[e].count_vars[specific_var_name] > soft_lim).only_enforce_if(employees_stats[e].count_vars[soft_var_name])
                     model.add(employees_stats[e].count_vars[specific_var_name] <= soft_lim).only_enforce_if(~employees_stats[e].count_vars[soft_var_name])
 
-                if hard_lim > 0 and not hard_var_name in employees_stats[e].count_vars:
+                if hard_var_name not in employees_stats[e].count_vars:
                     employees_stats[e].count_vars[hard_var_name] = model.new_bool_var(hard_var_name)
                     model.add(employees_stats[e].count_vars[specific_var_name] > hard_lim).only_enforce_if(employees_stats[e].count_vars[hard_var_name])
                     model.add(employees_stats[e].count_vars[specific_var_name] <= hard_lim).only_enforce_if(~employees_stats[e].count_vars[hard_var_name])
 
-                if hard_lim > 0:
-                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'], ~employees_stats[e].count_vars[hard_var_name])
+                model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'], ~employees_stats[e].count_vars[hard_var_name])
 
-                if soft_lim > 0:
+                if hard_lim > soft_lim:
                     soft_lim_var = f'{soft_var_name}_on_{shift_count}'
                     employees_stats[e].count_vars[soft_lim_var] = model.new_bool_var(soft_lim_var)
                     model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'], ~employees_stats[e].count_vars[soft_var_name], employees_stats[e].count_vars[soft_lim_var])
