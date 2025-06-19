@@ -68,14 +68,14 @@ shift_categories = {
 # Data
 ################################################################################
 #start options
-month_first_day = "Su"
-month_days = 30
-public_holidays = [9,]
+month_first_day = "Tu"
+month_days = 31
+public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal = 0
 hot_periods = []
-filename = 'data.june.csv'
+filename = 'july.csv'
 
 #end options
 ################################################################################
@@ -556,8 +556,8 @@ def solve_shift_scheduling(output_proto: str):
         "limits" : [
             {
                 0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (0, 1, 800)),
-                2: ((0, 0, 0), (0, 1, 800)),
+                1: ((0, 0, 0), (0, 1, 1400)),
+                2: ((0, 0, 0), (0, 1, 1400)),
                 3: ((0, 0 ,0), (0, 1, 800)),
                 4: ((0, 0, 0), (1, 2, 800)),
                 5: ((0, 0, 0), (2, 3, 800)),
@@ -616,7 +616,7 @@ def solve_shift_scheduling(output_proto: str):
         "prefix" : "internal",
         "applicable": lambda e: get_employee_max_shifts(e) > 0 and can_do_internal(e) and can_do_external(e),
         "lambda": lambda e, s, d: is_internal(s),
-        "index" : lambda e:  0,
+        "index" : lambda e:  1 if get_employee_level(e) == "D" else 0,
         "limits" : [
             {
                 0: ((0, 0, 0), (0, 0, 0)),
@@ -627,6 +627,17 @@ def solve_shift_scheduling(output_proto: str):
                 5: ((0, 0, 0), (3, 5, 200)),
                 6: ((0, 0, 0), (4, 6, 200)),
                 7: ((0, 0, 0), (5, 7, 200)),
+            },
+
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (1, 1, 200)),
+                2: ((0, 1, 200), (2, 2, 200)),
+                3: ((1, 2, 200), (3, 3, 200)),
+                4: ((1, 3, 200), (4, 4, 200)),
+                5: ((1, 3, 200), (4, 5, 200)),
+                6: ((0, 0, 0), (5, 6, 200)),
+                7: ((0, 0, 0), (6, 7, 200)),
             },
         ]
     }
@@ -805,6 +816,39 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                                   ~employees_stats[e].count_vars[hard_var_name])
 
                 if hard_lim > soft_lim and shift_count > soft_lim:
+                    soft_lim_var = f'{soft_var_name}_on_{shift_count}'
+                    employees_stats[e].count_vars[soft_lim_var] = model.new_bool_var(soft_lim_var)
+                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[soft_var_name],
+                                      employees_stats[e].count_vars[soft_lim_var])
+                    cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
+                    cost_coefficients.append(penalty)
+
+                #===================================================================================================
+                soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][0]
+
+                soft_var_name = f'new_{specific_input["prefix"]}_{e}_lower_than_{soft_lim}'
+                hard_var_name = f'new_{specific_input["prefix"]}_{e}_lower_than_{hard_lim}'
+
+                if soft_var_name not in employees_stats[e].count_vars:
+                    employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
+                    model.add(employees_stats[e].count_vars[specific_var_name] < soft_lim).only_enforce_if(
+                        employees_stats[e].count_vars[soft_var_name])
+                    model.add(employees_stats[e].count_vars[specific_var_name] >= soft_lim).only_enforce_if(
+                        ~employees_stats[e].count_vars[soft_var_name])
+
+                if hard_var_name not in employees_stats[e].count_vars:
+                    employees_stats[e].count_vars[hard_var_name] = model.new_bool_var(hard_var_name)
+                    model.add(employees_stats[e].count_vars[specific_var_name] < hard_lim).only_enforce_if(
+                        employees_stats[e].count_vars[hard_var_name])
+                    model.add(employees_stats[e].count_vars[specific_var_name] >= hard_lim).only_enforce_if(
+                        ~employees_stats[e].count_vars[hard_var_name])
+
+                if hard_lim > 0:
+                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                  ~employees_stats[e].count_vars[hard_var_name])
+
+                if soft_lim > 0 and soft_lim > hard_lim:
                     soft_lim_var = f'{soft_var_name}_on_{shift_count}'
                     employees_stats[e].count_vars[soft_lim_var] = model.new_bool_var(soft_lim_var)
                     model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
