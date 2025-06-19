@@ -114,6 +114,12 @@ def is_holiday(d):
         return True
     return False
 
+def is_internal(s):
+    return shifts[s] in ['IM', 'IA']
+
+def is_external(s):
+    return shifts[s] not in ['IM', 'IA']
+
 def is_sunday(d):
     first_day_index = week.index(month_first_day)
     return (d + first_day_index) % len(week)  == week.index("Su")
@@ -209,6 +215,20 @@ def is_night_shift(s):
 
 def get_day_part_shifts(part_idx):
     return [i for i in range(len(shifts)) if shifts[i] in day_parts[part_idx]]
+
+def can_do_internal(e):
+    e_shifts = levels[get_employee_level(e)]
+    for shift in e_shifts:
+        if is_internal(shifts.index(shift)):
+            return True
+    return False
+
+def can_do_external(e):
+    e_shifts = levels[get_employee_level(e)]
+    for shift in e_shifts:
+        if is_external(shifts.index(shift)):
+            return True
+    return False
 
 def validate_input():
     valid = True
@@ -367,18 +387,19 @@ def print_solution(solver, status, work):
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "HOLIDAYS", "Sa", "Su", "othr_ho", "days"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "Sa", "Su", "othr_ho", "days"]
     out2.append(header2)
     for e in range(num_employees):
         line = []
         sft = 0
         nght = 0
+        intern = 0
         hdy = 0
         su = 0
         sa = 0
         oh = 0
         days = []
-        line.append(f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}]")
+        line.append(f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}][{get_employee_level(e)}]")
         for d in range(month_days):
             for s in range(num_shifts):
                 if solver.boolean_value(work[e, s, d]):
@@ -395,8 +416,11 @@ def print_solution(solver, status, work):
                         oh += 1
                     if s in get_night_shifts():
                         nght += 1
+                    if is_internal(s):
+                        intern += 1
         line.append(sft)
         line.append(nght)
+        line.append(intern)
         line.append(hdy)
         line.append(sa)
         line.append(su)
@@ -551,167 +575,63 @@ def solve_shift_scheduling(output_proto: str):
                 6: ((0, 0, 0), (3, 3, 800)),
                 7: ((0, 0, 0), (3, 3, 800)),
             },
+
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (1, 1, 800)),
+                2: ((0, 0, 0), (2, 2, 800)),
+                3: ((0, 0, 0), (3, 3, 800)),
+                4: ((0, 0, 0), (4, 4, 800)),
+                5: ((0, 0, 0), (5, 5, 800)),
+                6: ((0, 0, 0), (5, 5, 800)),
+                7: ((0, 0, 0), (5, 5, 800)),
+            },
         ]
     }
 
-    for e in range(num_employees):
-        total_var_name = f'new_total_count_{e}'
-        if not total_var_name in employees_stats[e].count_vars:
-            employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(e), get_employee_max_shifts(e), total_var_name)
-            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
-            model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
-
-            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
-                count_var_name = f'{total_var_name}_{shift_count}'
-                employees_stats[e].count_vars[count_var_name] = model.new_bool_var(count_var_name)
-                model.add(employees_stats[e].count_vars[total_var_name] == shift_count).only_enforce_if(employees_stats[e].count_vars[count_var_name])
-                model.add(employees_stats[e].count_vars[total_var_name] != shift_count).only_enforce_if(~employees_stats[e].count_vars[count_var_name])
-
-        specific_input = night_input
-
-        if specific_input["applicable"](e):
-            specific_var_name = f'new_{specific_input["prefix"]}_count_{e}'
-            employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(e),specific_var_name)
-            specific_employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if specific_input["lambda"](e,s,d)]
-            model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_employee_works))
-
-            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
-                soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
-
-                soft_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
-                hard_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{hard_lim}'
-
-                if soft_var_name not in employees_stats[e].count_vars:
-                    employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
-                    model.add(employees_stats[e].count_vars[specific_var_name] > soft_lim).only_enforce_if(employees_stats[e].count_vars[soft_var_name])
-                    model.add(employees_stats[e].count_vars[specific_var_name] <= soft_lim).only_enforce_if(~employees_stats[e].count_vars[soft_var_name])
-
-                if hard_var_name not in employees_stats[e].count_vars:
-                    employees_stats[e].count_vars[hard_var_name] = model.new_bool_var(hard_var_name)
-                    model.add(employees_stats[e].count_vars[specific_var_name] > hard_lim).only_enforce_if(employees_stats[e].count_vars[hard_var_name])
-                    model.add(employees_stats[e].count_vars[specific_var_name] <= hard_lim).only_enforce_if(~employees_stats[e].count_vars[hard_var_name])
-
-                model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'], ~employees_stats[e].count_vars[hard_var_name])
-
-                if hard_lim > soft_lim:
-                    soft_lim_var = f'{soft_var_name}_on_{shift_count}'
-                    employees_stats[e].count_vars[soft_lim_var] = model.new_bool_var(soft_lim_var)
-                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'], ~employees_stats[e].count_vars[soft_var_name], employees_stats[e].count_vars[soft_lim_var])
-                    cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
-                    cost_coefficients.append(penalty)
+    add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals)
                 
+    holiday_input = {
+        "prefix" : "holiday",
+        "applicable": lambda e: get_employee_max_shifts(e) > 0,
+        "lambda": lambda e, s, d: is_holiday(d),
+        "index" : lambda e:  0,
+        "limits" : [
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (1, 1, 300)),
+                2: ((0, 0, 0), (1, 2, 300)),
+                3: ((0, 0 ,0), (2, 3, 300)),
+                4: ((0, 0, 0), (2, 4, 300)),
+                5: ((0, 0, 0), (3, 5, 300)),
+                6: ((0, 0, 0), (3, 5, 300)),
+                7: ((0, 0, 0), (4, 5, 300)),
+            },
+        ]
+    }
 
+    add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals)
 
+    internal_input = {
+        "prefix" : "internal",
+        "applicable": lambda e: get_employee_max_shifts(e) > 0 and can_do_internal(e) and can_do_external(e),
+        "lambda": lambda e, s, d: is_internal(s),
+        "index" : lambda e:  0,
+        "limits" : [
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (1, 1, 200)),
+                2: ((0, 0, 0), (2, 2, 200)),
+                3: ((0, 0 ,0), (2, 3, 200)),
+                4: ((0, 0, 0), (2, 4, 200)),
+                5: ((0, 0, 0), (3, 5, 200)),
+                6: ((0, 0, 0), (4, 6, 200)),
+                7: ((0, 0, 0), (5, 7, 200)),
+            },
+        ]
+    }
 
-    #shifts num per employee
-    for e in range(num_employees):
-        max_holidays = 3
-        max_nights = 2 + get_employee_extra_nights(e)
-
-        #definitions
-        employees_stats[e].shifts_count = model.new_int_var(get_employee_min_shifts(e), get_employee_max_shifts(e), f"shifts_count({e})")
-        employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
-        model.add(employees_stats[e].shifts_count == sum(employee_works))
-
-        employees_stats[e].nights_count = model.new_int_var(0, max_nights,f"nights_count({e})")
-        night_works = [work[e, s, d] for d in range(month_days) for s in range(num_shifts) if is_night_shift(s)]
-        model.add(employees_stats[e].nights_count == sum(night_works))
-
-        employees_stats[e].holidays_count = model.new_int_var(0, max_holidays,f"holidays_count({e})")
-        holiday_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)  if is_holiday(d)]
-        model.add(employees_stats[e].holidays_count == sum(holiday_works))
-
-        #shifts vars
-        employees_stats[e].more_than_six = model.new_bool_var(f"e_{e}_more_than_six")
-        model.add(employees_stats[e].shifts_count > 6).only_enforce_if(employees_stats[e].more_than_six)
-        model.add(employees_stats[e].shifts_count <= 6).only_enforce_if(~employees_stats[e].more_than_six)
-
-        employees_stats[e].more_than_five = model.new_bool_var(f"e_{e}_more_than_five")
-        model.add(employees_stats[e].shifts_count > 5).only_enforce_if(employees_stats[e].more_than_five)
-        model.add(employees_stats[e].shifts_count <= 5).only_enforce_if(~employees_stats[e].more_than_five)
-
-        employees_stats[e].more_than_four = model.new_bool_var(f"e_{e}_more_than_four")
-        model.add(employees_stats[e].shifts_count > 4).only_enforce_if(employees_stats[e].more_than_four)
-        model.add(employees_stats[e].shifts_count <= 4).only_enforce_if(~employees_stats[e].more_than_four)
-
-        employees_stats[e].more_than_three = model.new_bool_var(f"e_{e}_more_than_three")
-        model.add(employees_stats[e].shifts_count > 3).only_enforce_if(employees_stats[e].more_than_three)
-        model.add(employees_stats[e].shifts_count <= 3).only_enforce_if(~employees_stats[e].more_than_three)
-
-        employees_stats[e].more_than_two = model.new_bool_var(f"e_{e}_more_than_two")
-        model.add(employees_stats[e].shifts_count > 2).only_enforce_if(employees_stats[e].more_than_two)
-        model.add(employees_stats[e].shifts_count <= 2).only_enforce_if(~employees_stats[e].more_than_two)
-
-        # night vars
-        # employees_stats[e].more_than_two_nights = model.new_bool_var(f"e_{e}_more_than_two_nights")
-        # model.add(employees_stats[e].nights_count > 2).only_enforce_if(employees_stats[e].more_than_two_nights)
-        # model.add(employees_stats[e].nights_count <= 2).only_enforce_if(~employees_stats[e].more_than_two_nights)
-        #
-        # employees_stats[e].more_than_one_night = model.new_bool_var(f"e_{e}_more_than_one_night")
-        # model.add(employees_stats[e].nights_count > 1).only_enforce_if(employees_stats[e].more_than_one_night)
-        # model.add(employees_stats[e].nights_count <= 1).only_enforce_if(~employees_stats[e].more_than_one_night)
-        #
-        # employees_stats[e].has_night = model.new_bool_var(f"e_{e}_has_night")
-        # model.add(employees_stats[e].nights_count > 0).only_enforce_if(employees_stats[e].has_night)
-        # model.add(employees_stats[e].nights_count <= 0).only_enforce_if(~employees_stats[e].has_night)
-        #
-        #holiday vars
-        employees_stats[e].more_than_one_holiday = model.new_bool_var(f"e_{e}_more_than_one_holiday")
-        model.add(employees_stats[e].holidays_count > 1).only_enforce_if(employees_stats[e].more_than_one_holiday)
-        model.add(employees_stats[e].holidays_count <= 1).only_enforce_if(~employees_stats[e].more_than_one_holiday)
-
-        employees_stats[e].more_than_two_holidays = model.new_bool_var(f"e_{e}_more_than_two_holidays")
-        model.add(employees_stats[e].holidays_count > 2).only_enforce_if(employees_stats[e].more_than_two_holidays)
-        model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_two_holidays)
-
-        model.add(employees_stats[e].shifts_count >= employees_stats[e].nights_count)
-        model.add(employees_stats[e].shifts_count >= employees_stats[e].holidays_count)
-
-        #night rules
-        # if can_do_nights(e):
-        #     model.add_implication(employees_stats[e].has_night, employees_stats[e].more_than_two)
-        #
-        #     employees_stats[e].two_nights_on_four = model.new_bool_var(f"e_{e}_two_nights_on_four")
-        #     model.add_bool_or(~employees_stats[e].more_than_one_night, employees_stats[e].more_than_four, employees_stats[e].two_nights_on_four)
-        #     cost_literals.append(employees_stats[e].two_nights_on_four)
-        #     cost_coefficients.append(600 / (get_employee_extra_nights(e) + 1))
-        #
-        #     employees_stats[e].one_night_on_three = model.new_bool_var(f"e_{e}_one_night_on_three")
-        #     model.add_bool_or(~employees_stats[e].has_night, employees_stats[e].more_than_three, employees_stats[e].one_night_on_three)
-        #     cost_literals.append(employees_stats[e].one_night_on_three)
-        #     cost_coefficients.append(400 / (get_employee_extra_nights(e) + 1))
-
-            # # TODO maybe not needed
-            # employees_stats[e].three_nights_on_seven = model.new_bool_var(f"e_{e}_three_nights_on_seven")
-            # model.add_bool_or(~employees_stats[e].more_than_two_nights, employees_stats[e].more_than_six, ~employees_stats[e].three_nights_on_seven)
-            # cost_literals.append(employees_stats[e].three_nights_on_seven)
-            # cost_coefficients.append(-1000)
-
-        #holiday_rules
-        # model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(employees_stats[e].more_than_six)
-        # if get_employee_level(e) == 'A':
-        #     model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_three)
-        # else:
-        #     model.add(employees_stats[e].holidays_count <= 2).only_enforce_if(~employees_stats[e].more_than_four)
-
-        # if get_employee_level(e) == 'A':
-        #     employees_stats[e].class_a_too_much_holidays = model.new_bool_var(f"e_{e}_class_a_too_much_holidays")
-        #     model.add_bool_or(~employees_stats[e].more_than_four, ~employees_stats[e].more_than_two_holidays, employees_stats[e].class_a_too_much_holidays)
-        #     cost_literals.append(employees_stats[e].class_a_too_much_holidays)
-        #     cost_coefficients.append(30)
-
-        employees_stats[e].three_holidays_less_six = model.new_bool_var(f"e_{e}_three_holidays_less_six")
-        model.add_bool_or(~employees_stats[e].more_than_two_holidays, employees_stats[e].more_than_five ,employees_stats[e].three_holidays_less_six)
-        cost_literals.append(employees_stats[e].three_holidays_less_six)
-        cost_coefficients.append(300)
-
-        employees_stats[e].two_holidays_less_three = model.new_bool_var(f"e_{e}_two_holidays_less_four")
-        model.add_bool_or(~employees_stats[e].more_than_one_holiday, employees_stats[e].more_than_three ,employees_stats[e].two_holidays_less_three)
-        cost_literals.append(employees_stats[e].three_holidays_less_six)
-        cost_coefficients.append(150)
-
-        # cost_literals.append(employees_stats[e].more_than_six)
-        # cost_coefficients.append(-30)
+    add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals)
 
     #positives - negatives
     for e in range(num_employees):
@@ -758,33 +678,6 @@ def solve_shift_scheduling(output_proto: str):
                             weight *= 3
                         cost_coefficients.append(-weight)
 
-
-    #shifts spread
-    # window_size = 5
-    # max_shifts_on_window = 2
-    # for e in range(num_employees):
-    #     if (get_neg(e) + get_neg_prefs(3)) < 10 * 3:
-    #         employees_stats[e].exceeds_wdw_limits = []
-    #         for d in range(month_days - window_size):
-    #             shifts_count = model.new_int_var(0, window_size, f"window_e_{e}_d_{d}")
-    #             works = [work[e, s, d1] for d1 in range(d, d +window_size) for s in range(num_shifts)]
-    #             model.add(shifts_count == sum(works))
-    #             employees_stats[e].exceeds_wdw_limit = model.new_bool_var(f"e_{e}_{d}_exceeds_wdw_lmt")
-    #             employees_stats[e].exceeds_wdw_limits.append(employees_stats[e].exceeds_wdw_limit)
-    #             model.add(shifts_count > max_shifts_on_window).only_enforce_if(employees_stats[e].exceeds_wdw_limit)
-    #             model.add(shifts_count <= max_shifts_on_window).only_enforce_if(~employees_stats[e].exceeds_wdw_limit)
-    #             cost_literals.append(employees_stats[e].exceeds_wdw_limit)
-    #             cost_coefficients.append(8)
-
-    # #
-    # window2_size = 5
-    # shifts_on_window2 = 2
-    # for e in range(num_employees):
-    #     for d in range(month_days - window2_size):
-    #         shifts_count = model.new_int_var(0, shifts_on_window2, f"window2_e_{e}_d_{d}")
-    #         works = [work[e, s, d1] for d1 in range(d, d +window2_size) for s in range(num_shifts)]
-    #         model.add(shifts_count == sum(works))
-    #
 
     #hot periods
     for e in range(num_employees):
@@ -859,6 +752,67 @@ def solve_shift_scheduling(output_proto: str):
         infeasibles = solver.SufficientAssumptionsForInfeasibility()
         for i in infeasibles:
             print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
+
+
+def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals):
+    for e in range(num_employees):
+        total_var_name = f'new_total_count_{e}'
+        if not total_var_name in employees_stats[e].count_vars:
+            employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(e),
+                                                                              get_employee_max_shifts(e),
+                                                                              total_var_name)
+            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
+            model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
+
+            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
+                count_var_name = f'{total_var_name}_{shift_count}'
+                employees_stats[e].count_vars[count_var_name] = model.new_bool_var(count_var_name)
+                model.add(employees_stats[e].count_vars[total_var_name] == shift_count).only_enforce_if(
+                    employees_stats[e].count_vars[count_var_name])
+                model.add(employees_stats[e].count_vars[total_var_name] != shift_count).only_enforce_if(
+                    ~employees_stats[e].count_vars[count_var_name])
+
+        if specific_input["applicable"](e):
+            specific_var_name = f'new_{specific_input["prefix"]}_count_{e}'
+            employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(e),
+                                                                                 specific_var_name)
+            specific_employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if
+                                       specific_input["lambda"](e, s, d)]
+            model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_employee_works))
+
+            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
+                soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
+
+                soft_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
+                hard_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{hard_lim}'
+
+                if soft_var_name not in employees_stats[e].count_vars:
+                    employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
+                    model.add(employees_stats[e].count_vars[specific_var_name] > soft_lim).only_enforce_if(
+                        employees_stats[e].count_vars[soft_var_name])
+                    model.add(employees_stats[e].count_vars[specific_var_name] <= soft_lim).only_enforce_if(
+                        ~employees_stats[e].count_vars[soft_var_name])
+
+                if hard_var_name not in employees_stats[e].count_vars:
+                    employees_stats[e].count_vars[hard_var_name] = model.new_bool_var(hard_var_name)
+                    model.add(employees_stats[e].count_vars[specific_var_name] > hard_lim).only_enforce_if(
+                        employees_stats[e].count_vars[hard_var_name])
+                    model.add(employees_stats[e].count_vars[specific_var_name] <= hard_lim).only_enforce_if(
+                        ~employees_stats[e].count_vars[hard_var_name])
+
+                if shift_count > hard_lim:
+                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                  ~employees_stats[e].count_vars[hard_var_name])
+
+                if hard_lim > soft_lim and shift_count > soft_lim:
+                    soft_lim_var = f'{soft_var_name}_on_{shift_count}'
+                    employees_stats[e].count_vars[soft_lim_var] = model.new_bool_var(soft_lim_var)
+                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[soft_var_name],
+                                      employees_stats[e].count_vars[soft_lim_var])
+                    cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
+                    cost_coefficients.append(penalty)
+
 
 def main(_):
     data = pandas.read_csv(filename).fillna("I")
