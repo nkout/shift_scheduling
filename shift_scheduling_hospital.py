@@ -360,7 +360,7 @@ def in_brackets_if(s, cond):
     else:
         return s
 
-def print_solution(solver, status, work):
+def print_solution(solver, status, work, virtual_work):
     num_employees = len(employees)
     num_shifts = len(shifts)
     first_day_index = week.index(month_first_day)
@@ -370,6 +370,7 @@ def print_solution(solver, status, work):
     output = []
     header = ["", ""]
     header += shifts
+    header.append("VIRTUAL")
     output.append(header)
     for d in range(month_days):
         line = []
@@ -383,11 +384,14 @@ def print_solution(solver, status, work):
                     shift_given = True
             if not shift_given:
                 line.append("")
+        for e in range(num_employees):
+            if solver.boolean_value(virtual_work[e, d]):
+                line.append(html_bold_if(get_employee_name(e), is_holiday(d)))
         output.append(line)
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "Sa", "Su", "othr_ho", "days"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "Sa", "Su", "othr_ho", "virtual","days"]
     out2.append(header2)
     for e in range(num_employees):
         line = []
@@ -399,8 +403,11 @@ def print_solution(solver, status, work):
         sa = 0
         oh = 0
         days = []
+        virtual_w = 0
         line.append(f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}][{get_employee_level(e)}]")
         for d in range(month_days):
+            if solver.boolean_value(virtual_work[e, d]):
+                virtual_w += 1
             for s in range(num_shifts):
                 if solver.boolean_value(work[e, s, d]):
                     #days.append(in_brackets_if( html_bold_if(str(d+1),is_holiday(d)), is_night_shift(s)))
@@ -425,6 +432,7 @@ def print_solution(solver, status, work):
         line.append(sa)
         line.append(su)
         line.append(oh)
+        line.append(virtual_w)
         line.append(','.join(days))
 
         out2.append(line)
@@ -465,12 +473,17 @@ def solve_shift_scheduling(output_proto: str):
     cost_coefficients = []
 
     work = {}
+    virtual_work = {}
     black_listed = {}
     for e in range(num_employees):
         for s in range(num_shifts):
             for d in range(month_days):
                 work[e, s, d] = model.new_bool_var(f"work{e}_{s}_{d}")
                 black_listed[e, s, d] = False
+
+    for e in range(num_employees):
+        for d in range(month_days):
+            virtual_work[e,d] = model.new_bool_var(f"virtual_work{e}_{d}")
 
     #employee works at d -  max one shift per day
     for e in range(num_employees):
@@ -479,12 +492,13 @@ def solve_shift_scheduling(output_proto: str):
             employees_stats[e].works_at_day[d] = model.new_bool_var(f"e_{e}_works_at_{d}")
             day_shifts.append(~employees_stats[e].works_at_day[d])
             model.add_exactly_one(day_shifts)
+            model.add_at_most_one([employees_stats[e].works_at_day[d], virtual_work[e,d]])
 
     # limit the cost of shifts
     for e in range(num_employees):
         weights = []
         costs = []
-        max_cost = 77 - 10 * get_employee_virtual_shifts(e)
+        max_cost = 77 # - 10 * get_employee_virtual_shifts(e)
         for d in range(month_days):
             if is_sunday(d) or is_public_holiday(d):
                 day_cost = 14
@@ -495,6 +509,8 @@ def solve_shift_scheduling(output_proto: str):
             for s in range(num_shifts):
                 weights.append(work[e, s, d])
                 costs.append(day_cost)
+            weights.append(virtual_work[e, d])
+            costs.append(day_cost)
         weighted_sum = sum(weights[i] * costs[i] for i in range(len(costs)))
         model.Add(weighted_sum <= max_cost)
 
@@ -547,6 +563,14 @@ def solve_shift_scheduling(output_proto: str):
                     for e in range(num_employees):
                         model.add(work[e, s, d] == False)
                         black_listed[e, s, d] = True
+
+    #force virtual shifts to be covered
+    for d in range(month_days):
+        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+            model.add_exactly_one([virtual_work[e, d] for e in range(num_employees)])
+        else:
+            for e in range(num_employees):
+                model.add(virtual_work[e, d] == False)
 
     night_input = {
         "prefix" : "night",
@@ -652,6 +676,7 @@ def solve_shift_scheduling(output_proto: str):
         pos = get_pos(e)
 
         for d in range(month_days):
+            virtual_negative_added = False
             for dp_idx in range(len(day_parts)):
                 employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
 
@@ -670,6 +695,9 @@ def solve_shift_scheduling(output_proto: str):
                 if slot_pref == "N":
                     for w in employee_works:
                         model.add(w == 0)
+                    if not virtual_negative_added:
+                        model.add(virtual_work[e, d] == False)
+                        virtual_negative_added = True
 
                 if slot_pref == "WN" or slot_pref == "WP":
                     name = f"worked_{e}_{d}_{dp_idx}"
@@ -751,7 +779,7 @@ def solve_shift_scheduling(output_proto: str):
     # Print solution.
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         print("SOLVED")
-        print_solution(solver, status, work)
+        print_solution(solver, status, work, virtual_work)
     else:
         print("NOT SOLVED :-(")
 
