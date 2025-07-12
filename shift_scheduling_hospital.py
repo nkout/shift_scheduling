@@ -636,6 +636,28 @@ def solve_shift_scheduling(output_proto: str):
 
     add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals)
 
+    virtual_input = {
+        "prefix" : "virtual",
+        "applicable": lambda ee: get_employee_virtual_shifts(ee) > 0,
+        "set_lambda": lambda ee: [virtual_work[ee, dd] for dd in range(month_days)],
+        "max_value": 7,
+        "index" : lambda e:  0,
+        "limits" : [
+            {
+                0: ((0, 0, 0), (0, 0, 0)),
+                1: ((0, 0, 0), (0, 0, 0)),
+                2: ((0, 0, 0), (0, 0, 0)),
+                3: ((1, 0 ,1000), (1, 1, 0)),
+                4: ((2, 0, 1000), (2, 2, 0)),
+                5: ((2, 0, 1500), (2, 2, 0)),
+                6: ((2, 0, 1500), (2, 2, 0)),
+                7: ((2, 0, 1500), (2, 2, 0)),
+            },
+        ]
+    }
+
+    add_constraints(model, work, virtual_input, num_employees, num_shifts, cost_coefficients, cost_literals)
+
     internal_input = {
         "prefix" : "internal",
         "applicable": lambda e: get_employee_max_shifts(e) > 0 and can_do_internal(e) and can_do_external(e),
@@ -656,10 +678,10 @@ def solve_shift_scheduling(output_proto: str):
             {
                 0: ((0, 0, 0), (0, 0, 0)),
                 1: ((0, 0, 0), (1, 1, 200)),
-                2: ((0, 1, 200), (2, 2, 200)),
-                3: ((1, 2, 200), (3, 3, 200)),
-                4: ((1, 3, 200), (4, 4, 200)),
-                5: ((1, 3, 200), (4, 5, 200)),
+                2: ((1, 0, 200), (2, 2, 200)),
+                3: ((2, 1, 200), (3, 3, 200)),
+                4: ((3, 1, 200), (4, 4, 200)),
+                5: ((3, 1, 200), (4, 5, 200)),
                 6: ((0, 0, 0), (5, 6, 200)),
                 7: ((0, 0, 0), (6, 7, 200)),
             },
@@ -813,11 +835,21 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
 
         if specific_input["applicable"](e):
             specific_var_name = f'new_{specific_input["prefix"]}_count_{e}'
-            employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(e),
-                                                                                 specific_var_name)
-            specific_employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if
-                                       specific_input["lambda"](e, s, d)]
-            model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_employee_works))
+            if "lambda" in specific_input:
+                employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(e),
+                                                                                     specific_var_name)
+                specific_employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if
+                                           specific_input["lambda"](e, s, d)]
+                model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_employee_works))
+            elif "set_lambda" in specific_input:
+                employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, specific_input["max_value"],
+                                                                                     specific_var_name)
+                model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_input["set_lambda"](e)))
+                print(f"-{e}---")
+                print(specific_input["set_lambda"](e))
+            else:
+                print('wrong lamda')
+                exit(1)
 
             for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
