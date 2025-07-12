@@ -151,6 +151,9 @@ def get_employee_extra_nights(e):
 def get_employee_virtual_shifts(e):
     return employees[e][4]
 
+def get_employee_plasma_shifts(e):
+    return employees[e][5]
+
 def get_employee_capable_shifts(e):
     return levels[employees[e][1]]
 
@@ -161,7 +164,7 @@ def get_employee_max_shifts(e):
     return employees[e][2][1]
 
 def get_employee_preference(e,d,i):
-    return employees[e][5][d][i]
+    return employees[e][6][d][i]
 
 def prefered_nights(e):
     count = 0
@@ -286,10 +289,13 @@ def validate_input():
         if len(e[2]) != 2:
             valid = False
             print("invalid shift num pref")
-        if len(e[5]) != month_days:
+        if len(e[6]) != month_days:
             valid = False
             print("invalid shift num pref days")
-        for day_pref in e[5]:
+        if e[5] > 0 and e[4] > 0:
+            valid = False
+            print("both virtual and plasma shifts")
+        for day_pref in e[6]:
             if len(day_pref)!=3:
                 valid = False
                 print("invalid shift num pref days len")
@@ -311,9 +317,10 @@ def format_input(data):
         out.append([int(row[2]), int(row[3])])
         out.append(row[4])
         out.append(row[5])
+        out.append(row[6])
         prefs = []
         count = 0
-        for i in range(6, len(row), 3):
+        for i in range(7, len(row), 3):
             count += 1
             prefs.append([row[i],row[i+1],row[i+2]])
         out.append(prefs)
@@ -391,7 +398,7 @@ def print_solution(solver, status, work, virtual_work):
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "Sa", "Su", "othr_ho", "virtual","days"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "SA", "SU", "OTHER_HOL", "VIRTUAL","DAYS"]
     out2.append(header2)
     for e in range(num_employees):
         line = []
@@ -404,7 +411,16 @@ def print_solution(solver, status, work, virtual_work):
         oh = 0
         days = []
         virtual_w = 0
-        line.append(f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}][{get_employee_level(e)}]")
+
+        plasma_str = ""
+        virtual_str = ""
+        if get_employee_virtual_shifts(e) > 0:
+            virtual_str = f',V:{get_employee_virtual_shifts(e)}'
+        if get_employee_plasma_shifts(e) > 0:
+            plasma_str = f',P:{get_employee_plasma_shifts(e)}'
+        formated_name = f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}][{get_employee_level(e)}{virtual_str}{plasma_str}]"
+
+        line.append(formated_name)
         for d in range(month_days):
             if solver.boolean_value(virtual_work[e, d]):
                 virtual_w += 1
@@ -498,7 +514,7 @@ def solve_shift_scheduling(output_proto: str):
     for e in range(num_employees):
         weights = []
         costs = []
-        max_cost = 77 # - 10 * get_employee_virtual_shifts(e)
+        max_cost = 77  - 10 * get_employee_plasma_shifts(e)
         for d in range(month_days):
             if is_sunday(d) or is_public_holiday(d):
                 day_cost = 14
