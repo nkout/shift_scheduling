@@ -861,8 +861,6 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                 employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, specific_input["max_value"],
                                                                                      specific_var_name)
                 model.add(employees_stats[e].count_vars[specific_var_name] == sum(specific_input["set_lambda"](e)))
-                print(f"-{e}---")
-                print(specific_input["set_lambda"](e))
             else:
                 print('wrong lamda')
                 exit(1)
