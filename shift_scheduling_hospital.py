@@ -36,6 +36,7 @@ html_footer = '''
 
 num_weeks = 4
 week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+week_gr = ["ΔΕΥΤΕΡΑ", "ΤΡΙΤΗ", "ΤΕΤΑΡΤΗ", "ΠΕΜΠΤΗ", "ΠΑΡΑΣΚΕΥΗ", "ΣΑΒΒΑΤΟ", "ΚΥΡΙΑΚΗ"]
 shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"]
 
 shift_groups = [
@@ -453,6 +454,57 @@ def print_solution(solver, status, work, virtual_work):
 
         out2.append(line)
 
+    out_logistics = []
+    empty_shifts = [""] * 7
+    out_logistics.append(["α/α", "ΒΑΘΜΟΣ", "ΟΝΟΜΑΤΕΠΩΝΥΜΟ"] + empty_shifts + ["ΑΡΙΘΜΟΣ ΕΦΗΜ."])
+    for e in range(num_employees):
+        line = [str(e+1), "", get_employee_name(e)]
+        empl_shifts = []
+        for d in range(month_days):
+            if solver.boolean_value(virtual_work[e, d]):
+                empl_shifts.append(str(d+1))
+            else:
+                for s in range(num_shifts):
+                    if solver.boolean_value(work[e, s, d]):
+                        empl_shifts.append(str(d + 1))
+        line += (empl_shifts + empty_shifts)[:7]
+        has_gift = " +gift" if get_employee_gift_shifts(e) > 0 else ""
+        line.append(str(len(empl_shifts)) + has_gift)
+        out_logistics.append(line)
+
+    out_official = []
+    out_official.append(["", "","", "ΠΡΩΙ", "", "ΑΠΟΓΕΥΜΑ", "", "",  "ΒΡΑΔΥ", ""])
+    for d in range(month_days):
+        line = []
+        line.append(str(d + 1))
+        line.append(week_gr[(d + first_day_index) % 7])
+        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+            line.append("ΕΣ")
+        else:
+            line.append("EN")
+
+        for day_part_i in range(len(day_parts)):
+            day_part = day_parts[day_part_i]
+            part_sifts = []
+            for s in range(num_shifts):
+                for e in range(num_employees):
+                    if solver.boolean_value(work[e, s, d]) and shifts[s] in day_part:
+                        part_sifts.append(get_employee_name(e))
+            if day_part_i == 2:
+                for e in range(num_employees):
+                    if solver.boolean_value(virtual_work[e, d]):
+                        part_sifts.append(get_employee_name(e))
+            part_len = 3 if day_part_i == 1 else 2
+            part_sifts = (part_sifts + empty_shifts)[:part_len]
+            line +=part_sifts
+
+        out_official.append(line)
+
+    out_official2 = []
+    for line in out_official[1:]:
+        out_list = ([x for x in line if x != ""] + empty_shifts)[0:10]
+        out_official2.append(out_list)
+
     tmp = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html')
     try:
         print(tmp.name)
@@ -460,6 +512,12 @@ def print_solution(solver, status, work, virtual_work):
         tmp.write(as_html_table(output))
         tmp.write('<br><br>')
         tmp.write(as_html_table(out2))
+        tmp.write('<br><br>')
+        tmp.write(as_html_table(out_logistics))
+        tmp.write('<br><br>')
+        tmp.write(as_html_table(out_official))
+        tmp.write('<br><br>')
+        tmp.write(as_html_table(out_official2))
         tmp.write(html_footer)
     finally:
         tmp.close()
