@@ -523,8 +523,20 @@ def can_do_nights(employees,e):
             return True
     return False
 
+class MuteSolutionPrinter(cp_model.CpSolverSolutionCallback):
+    """Print intermediate solutions."""
 
-def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats):
+    def __init__(self):
+        cp_model.CpSolverSolutionCallback.__init__(self)
+        self.__solution_count = 0
+
+    def on_solution_callback(self) -> None:
+        self.__solution_count += 1
+
+    def solution_count(self) -> int:
+        return self.__solution_count
+
+def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days):
     """Solves the shift scheduling problem."""
     num_employees = len(employees)
     num_shifts = len(shifts)
@@ -610,24 +622,30 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     #force all shifts to be covered
     total_shifts = 0
     for d in range(month_days):
-            if is_holiday(d):
-                day_shifts = set(holiday_shifts)
-            else:
-                day_shifts = set(week_day_shifts)
-            day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+        if len(check_days) > 0 and not d in check_days:
+            continue
 
-            for s in range(num_shifts):
-                works = [work[e, s, d] for e in range(num_employees)]
-                if shifts[s] in day_shifts:
-                    model.add_exactly_one(works)
-                    total_shifts += 1
-                else:
-                    for e in range(num_employees):
-                        model.add(work[e, s, d] == False)
-                        black_listed[e, s, d] = True
+        if is_holiday(d):
+            day_shifts = set(holiday_shifts)
+        else:
+            day_shifts = set(week_day_shifts)
+        day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+
+        for s in range(num_shifts):
+            works = [work[e, s, d] for e in range(num_employees)]
+            if shifts[s] in day_shifts:
+                model.add_exactly_one(works)
+                total_shifts += 1
+            else:
+                for e in range(num_employees):
+                    model.add(work[e, s, d] == False)
+                    black_listed[e, s, d] = True
 
     #force virtual shifts to be covered
     for d in range(month_days):
+        if len(check_days) > 0 and not d in check_days:
+            continue
+
         if (d + month_starts_with_internal) % len(shift_groups) == 1:
             model.add_exactly_one([virtual_work[e, d] for e in range(num_employees)])
         else:
@@ -843,9 +861,9 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
 
-
-    print("avg shifts: " + str(avg_shifts) + " " + str(rem_shifts))
-    print("total shifts " + str(total_shifts))
+    if len(check_days) == 0:
+        print("avg shifts: " + str(avg_shifts) + " " + str(rem_shifts))
+        print("total shifts " + str(total_shifts))
 
     # Objective
     model.minimize(
@@ -862,7 +880,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20
+    solver.parameters.max_time_in_seconds = 20 if len(check_days) == 0 else 5
     #solver.parameters.log_search_progress = True
     #solver.parameters.enumerate_all_solutions = True
     #solver.parameters.num_search_workers = 8
@@ -871,32 +889,36 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     #solver.parameters.cp_model_presolve = True
     #solver.parameters.cp_model_probing_level = 0
 
-    solution_printer = cp_model.ObjectiveSolutionPrinter()
+    solution_printer = cp_model.ObjectiveSolutionPrinter()  if len(check_days) == 0 else MuteSolutionPrinter()
     status = solver.solve(model, solution_printer)
 
-    print("Status = %s" % solver.status_name(status))
+    if len(check_days) == 0:
+        print("Status = %s" % solver.status_name(status))
 
-    print("Statistics")
-    print("  - conflicts : %i" % solver.num_conflicts)
-    print("  - branches  : %i" % solver.num_branches)
-    print("  - wall time : %f s" % solver.wall_time)
-    print("  - number of solutions found: %i" % solution_printer.solution_count())
+        print("Statistics")
+        print("  - conflicts : %i" % solver.num_conflicts)
+        print("  - branches  : %i" % solver.num_branches)
+        print("  - wall time : %f s" % solver.wall_time)
+        print("  - number of solutions found: %i" % solution_printer.solution_count())
 
     # Print solution.
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        print("SOLVED")
-        print_solution(solver, status, work, virtual_work, employees, employees_stats)
+        if len(check_days) == 0:
+            print("SOLVED")
+            print_solution(solver, status, work, virtual_work, employees, employees_stats)
+        return True
     else:
         print("NOT SOLVED :-(")
 
-    if status == cp_model.INFEASIBLE:
-        # print infeasible boolean variables index
-        print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
+        if status == cp_model.INFEASIBLE:
+            # print infeasible boolean variables index
+            print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
 
-        # print infeasible boolean variables
-        infeasibles = solver.SufficientAssumptionsForInfeasibility()
-        for i in infeasibles:
-            print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
+            # print infeasible boolean variables
+            infeasibles = solver.SufficientAssumptionsForInfeasibility()
+            for i in infeasibles:
+                print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
+        return False
 
 
 def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
@@ -1002,6 +1024,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
 
 def main(_):
     data = pandas.read_csv(filename).fillna("I")
+    list_data = data.values.tolist()
 
     cost_literals = []
     cost_coefficients = []
@@ -1011,15 +1034,26 @@ def main(_):
     employees = []
     employees_stats = []
 
-    # Display the modified DataFrame
-    #print(data.head())
-    list_data = data.values.tolist()
     format_input(list_data, employees, employees_stats)
 
     for e in employees:
         print(e)
 
-    solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats)
+    if not solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, []):
+        for d in range(month_days):
+            check_days = []
+            check_days.append(d)
+            cost_literals = []
+            cost_coefficients = []
+            work = {}
+            virtual_work = {}
+            black_listed = {}
+            employees = []
+            employees_stats = []
+
+            format_input(list_data, employees, employees_stats)
+            result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
+            print(f"day {d+1} = {result}")
 
 
 if __name__ == "__main__":
