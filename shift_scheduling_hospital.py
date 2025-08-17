@@ -69,21 +69,17 @@ shift_categories = {
 # Data
 ################################################################################
 #start options
-month_first_day = "Fr"
-month_days = 31
-public_holidays = [15]
+month_first_day = "Mo"
+month_days = 30
+public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal = 1
 hot_periods = []
-filename = 'august.csv'
+filename = 'spt2.csv'
 
 #end options
 ################################################################################
-
-employees = []
-
-employees_stats = []
 
 class EmployeeStat:
     def __init__(self):
@@ -140,76 +136,76 @@ def is_public_holiday(d):
 def get_night_shifts():
     return [shifts.index(x) for x in day_parts[2]]
 
-def get_employee_name(e):
+def get_employee_name(employees, e):
     return employees[e][0]
 
-def get_employee_level(e):
+def get_employee_level(employees, e):
     return employees[e][1]
 
-def get_employee_extra_nights(e):
+def get_employee_extra_nights(employees, e):
     return employees[e][3]
 
-def get_employee_virtual_shifts(e):
+def get_employee_virtual_shifts(employees,e):
     return employees[e][4]
 
-def get_employee_gift_shifts(e):
+def get_employee_gift_shifts(employees, e):
     return employees[e][5]
 
-def get_employee_capable_shifts(e):
+def get_employee_capable_shifts(employees, e):
     return levels[employees[e][1]]
 
-def get_employee_min_shifts(e):
+def get_employee_min_shifts(employees, e):
     return employees[e][2][0]
 
-def get_employee_max_shifts(e):
+def get_employee_max_shifts(employees, e):
     return employees[e][2][1]
 
-def get_employee_preference(e,d,i):
+def get_employee_preference(employees, e,d,i):
     return employees[e][6][d][i]
 
-def prefered_nights(e):
+def prefered_nights(employees, e):
     count = 0
     for d in range(month_days):
-        if get_employee_preference(e,d,2) == "P" or get_employee_preference(e,d,2) == "WP":
-            if get_employee_preference(e,d,1) != "P" and get_employee_preference(e,d,1) != "WP":
-                if get_employee_preference(e, d, 0) != "P" and get_employee_preference(e, d, 0) != "WP":
+        if get_employee_preference(employees,e,d,2) == "P" or get_employee_preference(employees,e,d,2) == "WP":
+            if get_employee_preference(employees,e,d,1) != "P" and get_employee_preference(employees,e,d,1) != "WP":
+                if get_employee_preference(employees,e, d, 0) != "P" and get_employee_preference(employees,e, d, 0) != "WP":
                     count += 1
     return count
 
-def get_pos_prefs(e):
+def get_pos_prefs(employees, e):
     count = 0
     for d in range(month_days):
         for i in range(3):
-            if get_employee_preference(e,d,i) == "WP":
+            if get_employee_preference(employees,e,d,i) == "WP":
                 count += 1
     return count
 
-def get_neg_prefs(e):
+def get_neg_prefs(employees, e):
     count = 0
     for d in range(month_days):
         for i in range(3):
-            if get_employee_preference(e,d,i) == "WN":
+            if get_employee_preference(employees,e,d,i) == "WN":
                 count += 1
     return count
 
-def get_neg(e):
+def get_neg(employees, e):
     count = 0
     for d in range(month_days):
         for i in range(3):
-            if get_employee_preference(e,d,i) == "N":
+            if get_employee_preference(employees,e,d,i) == "N":
                 count += 1
     return count
 
-def get_pos(e):
+def get_pos(employees,e):
     count = 0
     for d in range(month_days):
         for i in range(3):
-            if get_employee_preference(e,d,i) == "P":
+            if get_employee_preference(employees,e,d,i) == "P":
                 count += 1
     return count
 
-def prefers_nights(e):
-    return prefered_nights(e) > 10
+def prefers_nights(employees, e):
+    return prefered_nights(employees,e) > 10
 
 def is_night_dp_idx(idx):
     return idx == 2
@@ -220,21 +216,21 @@ def is_night_shift(s):
 def get_day_part_shifts(part_idx):
     return [i for i in range(len(shifts)) if shifts[i] in day_parts[part_idx]]
 
-def can_do_internal(e):
-    e_shifts = levels[get_employee_level(e)]
+def can_do_internal(employees,e):
+    e_shifts = levels[get_employee_level(employees,e)]
     for shift in e_shifts:
         if is_internal(shifts.index(shift)):
             return True
     return False
 
-def can_do_external(e):
-    e_shifts = levels[get_employee_level(e)]
+def can_do_external(employees, e):
+    e_shifts = levels[get_employee_level(employees,e)]
     for shift in e_shifts:
         if is_external(shifts.index(shift)):
             return True
     return False
 
-def validate_input():
+def validate_input(employees):
     valid = True
 
     if not month_first_day in week:
@@ -307,9 +303,7 @@ def validate_input():
 
     return valid
 
-def format_input(data):
-    global employees
-    employees = []
+def format_input(data, employees, employees_stats):
 
     for row in data:
         out = []
@@ -368,7 +362,7 @@ def in_brackets_if(s, cond):
     else:
         return s
 
-def print_solution(solver, status, work, virtual_work):
+def print_solution(solver, status, work, virtual_work, employees, employees_stats):
     num_employees = len(employees)
     num_shifts = len(shifts)
     first_day_index = week.index(month_first_day)
@@ -388,13 +382,13 @@ def print_solution(solver, status, work, virtual_work):
             shift_given = False
             for e in range(num_employees):
                 if solver.boolean_value(work[e, s, d]):
-                    line.append(html_bold_if(get_employee_name(e), is_holiday(d)))
+                    line.append(html_bold_if(get_employee_name(employees,e), is_holiday(d)))
                     shift_given = True
             if not shift_given:
                 line.append("")
         for e in range(num_employees):
             if solver.boolean_value(virtual_work[e, d]):
-                line.append(html_bold_if(get_employee_name(e), is_holiday(d)))
+                line.append(html_bold_if(get_employee_name(employees,e), is_holiday(d)))
         output.append(line)
     # print(tabulate(output, tablefmt="html"))
 
@@ -415,11 +409,11 @@ def print_solution(solver, status, work, virtual_work):
 
         gift_str = ""
         virtual_str = ""
-        if get_employee_virtual_shifts(e) > 0:
-            virtual_str = f',V:{get_employee_virtual_shifts(e)}'
-        if get_employee_gift_shifts(e) > 0:
-            gift_str = f',P:{get_employee_gift_shifts(e)}'
-        formated_name = f"{get_employee_name(e)} - {get_employee_level(e)}[{get_employee_min_shifts(e)},{get_employee_max_shifts(e)}][{get_employee_level(e)}{virtual_str}{gift_str}]"
+        if get_employee_virtual_shifts(employees,e) > 0:
+            virtual_str = f',V:{get_employee_virtual_shifts(employees,e)}'
+        if get_employee_gift_shifts(employees,e) > 0:
+            gift_str = f',P:{get_employee_gift_shifts(employees,e)}'
+        formated_name = f"{get_employee_name(employees,e)} - {get_employee_level(employees,e)}[{get_employee_min_shifts(employees,e)},{get_employee_max_shifts(employees,e)}][{get_employee_level(employees,e)}{virtual_str}{gift_str}]"
 
         line.append(formated_name)
         for d in range(month_days):
@@ -458,7 +452,7 @@ def print_solution(solver, status, work, virtual_work):
     empty_shifts = [""] * 7
     out_logistics.append(["α/α", "ΒΑΘΜΟΣ", "ΟΝΟΜΑΤΕΠΩΝΥΜΟ"] + empty_shifts + ["ΑΡΙΘΜΟΣ ΕΦΗΜ."])
     for e in range(num_employees):
-        line = [str(e+1), "", get_employee_name(e)]
+        line = [str(e+1), "", get_employee_name(employees,e)]
         empl_shifts = []
         for d in range(month_days):
             if solver.boolean_value(virtual_work[e, d]):
@@ -468,7 +462,7 @@ def print_solution(solver, status, work, virtual_work):
                     if solver.boolean_value(work[e, s, d]):
                         empl_shifts.append(str(d + 1))
         line += (empl_shifts + empty_shifts)[:7]
-        has_gift = " +gift" if get_employee_gift_shifts(e) > 0 else ""
+        has_gift = " +gift" if get_employee_gift_shifts(employees,e) > 0 else ""
         line.append(str(len(empl_shifts)) + has_gift)
         out_logistics.append(line)
 
@@ -489,11 +483,11 @@ def print_solution(solver, status, work, virtual_work):
             for s in range(num_shifts):
                 for e in range(num_employees):
                     if solver.boolean_value(work[e, s, d]) and shifts[s] in day_part:
-                        part_sifts.append(get_employee_name(e))
+                        part_sifts.append(get_employee_name(employees,e))
             if day_part_i == 2:
                 for e in range(num_employees):
                     if solver.boolean_value(virtual_work[e, d]):
-                        part_sifts.append(get_employee_name(e))
+                        part_sifts.append(get_employee_name(employees,e))
             part_len = 3 if day_part_i == 1 else 2
             part_sifts = (part_sifts + empty_shifts)[:part_len]
             line +=part_sifts
@@ -523,14 +517,14 @@ def print_solution(solver, status, work, virtual_work):
         tmp.close()
         webbrowser.open('file://' + os.path.realpath(tmp.name))
 
-def can_do_nights(e):
+def can_do_nights(employees,e):
     for x in day_parts[2]:
-        if x in get_employee_capable_shifts(e):
+        if x in get_employee_capable_shifts(employees,e):
             return True
     return False
 
 
-def solve_shift_scheduling(output_proto: str):
+def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats):
     """Solves the shift scheduling problem."""
     num_employees = len(employees)
     num_shifts = len(shifts)
@@ -538,17 +532,11 @@ def solve_shift_scheduling(output_proto: str):
 
     model = cp_model.CpModel()
 
-    if not validate_input():
+    if not validate_input(employees):
         return
 ########################################################################
 # Basic Rules
 ########################################################################
-    cost_literals = []
-    cost_coefficients = []
-
-    work = {}
-    virtual_work = {}
-    black_listed = {}
     for e in range(num_employees):
         for s in range(num_shifts):
             for d in range(month_days):
@@ -572,7 +560,7 @@ def solve_shift_scheduling(output_proto: str):
     for e in range(num_employees):
         weights = []
         costs = []
-        max_cost = 77  - 10 * get_employee_gift_shifts(e)
+        max_cost = 77  - 10 * get_employee_gift_shifts(employees,e)
         for d in range(month_days):
             if is_sunday(d) or is_public_holiday(d):
                 day_cost = 14
@@ -615,7 +603,7 @@ def solve_shift_scheduling(output_proto: str):
     for e in range(num_employees):
         for s in range(num_shifts):
             for d in range(month_days):
-                if shifts[s] not in get_employee_capable_shifts(e):
+                if shifts[s] not in get_employee_capable_shifts(employees,e):
                     model.add(work[e, s, d] == False)
                     black_listed[e, s, d] = True
 
@@ -648,9 +636,9 @@ def solve_shift_scheduling(output_proto: str):
 
     night_input = {
         "prefix" : "night",
-        "applicable": lambda e: can_do_nights(e) and get_employee_max_shifts(e) > 0,
+        "applicable": lambda e: can_do_nights(employees,e) and get_employee_max_shifts(employees,e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "index" : lambda e: get_employee_extra_nights(e),
+        "index" : lambda e: get_employee_extra_nights(employees,e),
         "limits" : [
             {
                 0: ((0, 0, 0), (0, 0, 0)),
@@ -698,11 +686,11 @@ def solve_shift_scheduling(output_proto: str):
         ]
     }
 
-    add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals)
+    add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals,employees, employees_stats)
                 
     holiday_input = {
         "prefix" : "holiday",
-        "applicable": lambda e: get_employee_max_shifts(e) > 0,
+        "applicable": lambda e: get_employee_max_shifts(employees,e) > 0,
         "lambda": lambda e, s, d: is_holiday(d),
         "index" : lambda e:  0,
         "limits" : [
@@ -719,11 +707,11 @@ def solve_shift_scheduling(output_proto: str):
         ]
     }
 
-    add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals)
+    add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
 
     virtual_input = {
         "prefix" : "virtual",
-        "applicable": lambda ee: get_employee_virtual_shifts(ee) > 0,
+        "applicable": lambda ee: get_employee_virtual_shifts(employees, ee) > 0,
         "set_lambda": lambda ee: [virtual_work[ee, dd] for dd in range(month_days)],
         "max_value": 7,
         "index" : lambda e:  0,
@@ -741,13 +729,13 @@ def solve_shift_scheduling(output_proto: str):
         ]
     }
 
-    add_constraints(model, work, virtual_input, num_employees, num_shifts, cost_coefficients, cost_literals)
+    add_constraints(model, work, virtual_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
 
     internal_input = {
         "prefix" : "internal",
-        "applicable": lambda e: get_employee_max_shifts(e) > 0 and can_do_internal(e) and can_do_external(e),
+        "applicable": lambda e: get_employee_max_shifts(employees,e) > 0 and can_do_internal(employees,e) and can_do_external(employees, e),
         "lambda": lambda e, s, d: is_internal(s),
-        "index" : lambda e:  2 if get_employee_level(e) == "D" else 1 if  get_employee_level(e) == "C" else 0,
+        "index" : lambda e:  2 if get_employee_level(employees,e) == "D" else 1 if  get_employee_level(employees,e) == "C" else 0,
         "limits" : [
             {
                 0: ((0, 0, 0), (0, 0, 0)),
@@ -784,21 +772,21 @@ def solve_shift_scheduling(output_proto: str):
         ]
     }
 
-    add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals)
+    add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
 
     #positives - negatives
     for e in range(num_employees):
-        pos_prefs = get_pos_prefs(e)
-        neg_prefs = get_neg_prefs(e)
-        negs = get_neg(e)
-        pos = get_pos(e)
+        pos_prefs = get_pos_prefs(employees,e)
+        neg_prefs = get_neg_prefs(employees,e)
+        negs = get_neg(employees,e)
+        pos = get_pos(employees,e)
 
         for d in range(month_days):
             virtual_negative_added = False
             for dp_idx in range(len(day_parts)):
                 employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
 
-                slot_pref = get_employee_preference(e, d, dp_idx)
+                slot_pref = get_employee_preference(employees,e, d, dp_idx)
 
                 if slot_pref == "P":
                     model.add_exactly_one(employee_works)
@@ -831,7 +819,7 @@ def solve_shift_scheduling(output_proto: str):
                     if slot_pref == "WN":
                         cost_coefficients.append(weight)
                     else:
-                        if is_night_dp_idx(dp_idx) and prefers_nights(e):
+                        if is_night_dp_idx(dp_idx) and prefers_nights(employees,e):
                             weight *= 3
                         cost_coefficients.append(-weight)
 
@@ -897,7 +885,7 @@ def solve_shift_scheduling(output_proto: str):
     # Print solution.
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         print("SOLVED")
-        print_solution(solver, status, work, virtual_work)
+        print_solution(solver, status, work, virtual_work, employees, employees_stats)
     else:
         print("NOT SOLVED :-(")
 
@@ -911,17 +899,17 @@ def solve_shift_scheduling(output_proto: str):
             print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
 
 
-def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals):
+def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
     for e in range(num_employees):
         total_var_name = f'new_total_count_{e}'
         if not total_var_name in employees_stats[e].count_vars:
-            employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(e),
-                                                                              get_employee_max_shifts(e),
+            employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(employees,e),
+                                                                              get_employee_max_shifts(employees,e),
                                                                               total_var_name)
             employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
             model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
 
-            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
+            for shift_count in range(get_employee_min_shifts(employees,e), get_employee_max_shifts(employees,e) + 1):
                 count_var_name = f'{total_var_name}_{shift_count}'
                 employees_stats[e].count_vars[count_var_name] = model.new_bool_var(count_var_name)
                 model.add(employees_stats[e].count_vars[total_var_name] == shift_count).only_enforce_if(
@@ -932,7 +920,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
         if specific_input["applicable"](e):
             specific_var_name = f'new_{specific_input["prefix"]}_count_{e}'
             if "lambda" in specific_input:
-                employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(e),
+                employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(employees,e),
                                                                                      specific_var_name)
                 specific_employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if
                                            specific_input["lambda"](e, s, d)]
@@ -945,7 +933,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                 print('wrong lamda')
                 exit(1)
 
-            for shift_count in range(get_employee_min_shifts(e), get_employee_max_shifts(e) + 1):
+            for shift_count in range(get_employee_min_shifts(employees,e), get_employee_max_shifts(employees,e) + 1):
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
 
                 soft_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
@@ -1015,15 +1003,23 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
 def main(_):
     data = pandas.read_csv(filename).fillna("I")
 
+    cost_literals = []
+    cost_coefficients = []
+    work = {}
+    virtual_work = {}
+    black_listed = {}
+    employees = []
+    employees_stats = []
 
     # Display the modified DataFrame
     #print(data.head())
     list_data = data.values.tolist()
-    format_input(list_data)
+    format_input(list_data, employees, employees_stats)
 
     for e in employees:
         print(e)
-    solve_shift_scheduling(_OUTPUT_PROTO.value)
+
+    solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats)
 
 
 if __name__ == "__main__":
