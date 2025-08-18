@@ -56,6 +56,11 @@ levels = {
     "E": ["M2", "A3"]
 }
 
+level_penalties = {
+    "AA": {"A3": 500},
+    "A": {"IA": 500, "A3": 50}
+}
+
 day_parts = [
     ["IM", "M1", "M2"],
     ["IA", "A1", "A2", "A3"],
@@ -245,6 +250,15 @@ def validate_input(employees):
             if not s in shifts:
                 print("wrong shift in level")
                 valid = False
+
+    for pl in level_penalties:
+        if pl not in levels:
+            print("ivalid level penalty")
+            valid = False
+        for sft in level_penalties[pl]:
+            if sft not in levels[pl]:
+                print("ivalid level penalty shift")
+                valid = False
     for s in week_day_shifts:
         if not s in shifts:
             print("wrong weekday shift")
@@ -386,9 +400,14 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
                     shift_given = True
             if not shift_given:
                 line.append("")
+        virtual_found = False
         for e in range(num_employees):
             if solver.boolean_value(virtual_work[e, d]):
                 line.append(html_bold_if(get_employee_name(employees,e), is_holiday(d)))
+                virtual_found = True
+                break
+        if not virtual_found:
+            line.append("")
         output.append(line)
     # print(tabulate(output, tablefmt="html"))
 
@@ -589,9 +608,10 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         model.Add(weighted_sum <= max_cost)
 
     #not close shifts
+    close_shift_penalties = [2000, 50, 45, 40, 35, 10, 5, 4]
+
     for e in range(num_employees):
-        penalties = [2000, 50, 45, 40, 35, 10, 5, 4]
-        for index, value in enumerate(penalties):
+        for index, value in enumerate(close_shift_penalties):
             for d in range(month_days - index - 1):
                 close_work_var = model.NewBoolVar(f'close_work_{e}_{d}_{index}')
                 work_list = [employees_stats[e].works_at_day[d], employees_stats[e].works_at_day[d + index  + 1]]
