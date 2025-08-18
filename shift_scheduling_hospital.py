@@ -58,7 +58,7 @@ levels = {
 
 level_penalties = {
     "AA": {"A3": 500},
-    "A": {"IA": 500, "A3": 50}
+    "A": {"IA": 500, "IM": 500, "A3": 100},
 }
 
 day_parts = [
@@ -643,6 +643,13 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                 if shifts[s] not in get_employee_capable_shifts(employees,e):
                     model.add(work[e, s, d] == False)
                     black_listed[e, s, d] = True
+                if get_employee_level(employees, e) in level_penalties:
+                    if shifts[s] in level_penalties[get_employee_level(employees, e)]:
+                        penalty_shift = model.NewBoolVar(f'penalty_shift_{e}_{s}_{d}')
+                        model.add_exactly_one([penalty_shift, ~work[e, s, d]])
+                        cost_literals.append(penalty_shift)
+                        cost_coefficients.append(level_penalties[get_employee_level(employees, e)][shifts[s]])
+                        employees_stats[e].add_var_weight(penalty_shift, level_penalties[get_employee_level(employees, e)][shifts[s]])
 
     #force all shifts to be covered
     total_shifts = 0
