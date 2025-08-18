@@ -79,29 +79,35 @@ month_days = 30
 public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
-month_starts_with_internal = 1
+month_starts_with_internal = 0
 hot_periods = []
-filename = 'spt2.csv'
+filename = 'sept.csv'
 
 #end options
 ################################################################################
 
 class EmployeeStat:
     def __init__(self):
-        self.shifts_count = None
-        self.nights_count = None
-        self.holidays_count = None
-        self.more_than_five = None
-        self.more_than_four = None
-        self.more_than_three = None
-        self.more_than_one_night = None
-        self.two_nights_on_four = None
-        self.one_night_on_three = None
         self.works_at_day = {}
         self.count_vars = {}
+        self.vars_weights = {}
+    def add_var_weight(self, var, weight):
+        if weight not in self.vars_weights:
+            self.vars_weights[weight] = []
+        self.vars_weights[weight].append(var)
 
-    def __str__(self):
-        return f'more_than_three {self.more_than_three}, more_than_five {self.more_than_five},  two_nights {self.two_nights}, two_nights_on_four {self.two_nights_on_four}'
+    def print_weights(self, solver, thres):
+        out = []
+        for weight in self.vars_weights:
+            for var in self.vars_weights[weight]:
+                if solver.boolean_value(var):
+                    out.append((str(var), weight))
+        sorted_by_second = sorted(out, key=lambda tup: tup[1], reverse=True)
+        str_out = []
+
+        for srt in sorted_by_second:
+            str_out.append(html_bold_if(f"{str(srt[0])}: {srt[1]}", srt[1] > thres ))
+        return str_out
 
 def is_holiday(d):
     if d == -1:
@@ -208,9 +214,6 @@ def get_pos(employees,e):
             if get_employee_preference(employees,e,d,i) == "P":
                 count += 1
     return count
-
-def prefers_nights(employees, e):
-    return prefered_nights(employees,e) > 10
 
 def is_night_dp_idx(idx):
     return idx == 2
@@ -412,7 +415,7 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
     # print(tabulate(output, tablefmt="html"))
 
     out2 = []
-    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "SA", "SU", "OTHER_HOL", "VIRTUAL","DAYS"]
+    header2 = ["NAME", "SHIFTS", "NIGHTS", "INTERN","HOLIDAYS", "SA", "SU", "OTHER_HOL", "VIRTUAL","DAYS", "PENALTIES"]
     out2.append(header2)
     for e in range(num_employees):
         line = []
@@ -464,6 +467,7 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
         line.append(oh)
         line.append(virtual_w)
         line.append(','.join(days))
+        line.append(','.join(employees_stats[e].print_weights(solver, 80)))
 
         out2.append(line)
 
@@ -624,6 +628,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                 model.AddBoolOr(reverse_work_list).OnlyEnforceIf(~close_work_var)
                 cost_literals.append(close_work_var)
                 cost_coefficients.append(value)
+                employees_stats[e].add_var_weight(close_work_var, value)
 
     #not close nights <= check this if it can be relaxed
     close_range = 2
@@ -856,10 +861,10 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                         weight = 1
                     if slot_pref == "WN":
                         cost_coefficients.append(weight)
+                        employees_stats[e].add_var_weight(worked,weight)
                     else:
-                        if is_night_dp_idx(dp_idx) and prefers_nights(employees,e):
-                            weight *= 3
                         cost_coefficients.append(-weight)
+                        employees_stats[e].add_var_weight(worked,-weight)
 
 
     #hot periods
@@ -1007,6 +1012,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                                       employees_stats[e].count_vars[soft_lim_var])
                     cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
                     cost_coefficients.append(penalty)
+                    employees_stats[e].add_var_weight(employees_stats[e].count_vars[soft_lim_var],penalty)
 
                 #===================================================================================================
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][0]
@@ -1040,6 +1046,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                                       employees_stats[e].count_vars[soft_lim_var])
                     cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
                     cost_coefficients.append(penalty)
+                    employees_stats[e].add_var_weight(employees_stats[e].count_vars[soft_lim_var],penalty)
 
 
 def main(_):
