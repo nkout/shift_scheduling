@@ -6,11 +6,11 @@ from absl import app
 from absl import flags
 import os, tempfile
 import webbrowser
-
-from google.protobuf import text_format
+from config import *
 from ortools.sat.python import cp_model
-from pandas.compat.numpy.function import validate_sum
-from pandas.core.array_algos.transforms import shift
+
+month_starts_with_internal = 1 if month_starts_with_internal_shift  else 0
+
 
 _OUTPUT_PROTO = flags.DEFINE_string(
     "output_proto", "", "Output file to write the cp_model proto to."
@@ -33,58 +33,6 @@ html_footer = '''
 </html>
 
 '''
-
-num_weeks = 4
-week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-week_gr = ["ΔΕΥΤΕΡΑ", "ΤΡΙΤΗ", "ΤΕΤΑΡΤΗ", "ΠΕΜΠΤΗ", "ΠΑΡΑΣΚΕΥΗ", "ΣΑΒΒΑΤΟ", "ΚΥΡΙΑΚΗ"]
-shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"]
-
-shift_groups = [
-    ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
-    ["IM", "IA"]
-]
-
-week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
-holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
-
-levels = {
-    "AA": ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
-    "A": ["M1", "M2", "A1", "A2", "A3", "N1", "N2", "IM", "IA"],
-    "B": ["M2", "A2", "A3", "N2", "IM", "IA"],
-    "C": ["M2", "A3", "N2", "IM", "IA"],
-    "D": ["M2", "A3", "IM", "IA"],
-    "E": ["M2", "A3"]
-}
-
-level_penalties = {
-    "AA": {"A3": 500},
-    "A": {"IA": 500, "IM": 500, "A3": 100},
-}
-
-day_parts = [
-    ["IM", "M1", "M2"],
-    ["IA", "A1", "A2", "A3"],
-    ["N1", "N2"]
-]
-
-shift_categories = {
-
-}
-
-# Data
-################################################################################
-#start options
-month_first_day = "Mo"
-month_days = 30
-public_holidays = []
-prev_month_last_is_holiday = False
-next_month_first_is_holiday = False
-month_starts_with_internal = 0
-hot_periods = []
-filename = 'sept.csv'
-
-#end options
-################################################################################
 
 class EmployeeStat:
     def __init__(self):
@@ -612,8 +560,6 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         model.Add(weighted_sum <= max_cost)
 
     #not close shifts
-    close_shift_penalties = [2000, 50, 45, 40, 35, 10, 5, 4]
-
     for e in range(num_employees):
         for index, value in enumerate(close_shift_penalties):
             for d in range(month_days - index - 1):
@@ -685,143 +631,44 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                 model.add(virtual_work[e, d] == False)
 
     night_input = {
-        "prefix" : "night",
-        "applicable": lambda e: can_do_nights(employees,e) and get_employee_max_shifts(employees,e) > 0,
+        "prefix": "night",
+        "applicable": lambda e: can_do_nights(employees, e) and get_employee_max_shifts(employees, e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "index" : lambda e: get_employee_extra_nights(employees,e),
-        "limits" : [
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (0, 0, 1400)),
-                2: ((0, 0, 0), (0, 0, 1400)),
-                3: ((0, 0 ,0), (0, 0, 2800)),
-                4: ((0, 0, 0), (1, 1, 800)),
-                5: ((0, 0, 0), (2, 2, 800)),
-                6: ((0, 0, 0), (2, 2, 800)),
-                7: ((0, 0, 0), (2, 2, 800)),
-            },
-
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (0, 0, 1400)),
-                2: ((0, 0, 0), (0, 0, 1400)),
-                3: ((0, 0, 0), (1, 1, 2800)),
-                4: ((0, 0, 0), (1, 1, 800)),
-                5: ((0, 0, 0), (2, 2, 800)),
-                6: ((0, 0, 0), (2, 2, 800)),
-                7: ((0, 0, 0), (3, 3, 800)),
-            },
-
-            # {
-            #     0: ((0, 0, 0), (0, 0, 0)),
-            #     1: ((0, 0, 0), (0, 1, 800)),
-            #     2: ((0, 0, 0), (1, 1, 800)),
-            #     3: ((0, 0, 0), (1, 1, 800)),
-            #     4: ((0, 0, 0), (2, 2, 800)),
-            #     5: ((0, 0, 0), (3, 3, 800)),
-            #     6: ((0, 0, 0), (3, 3, 800)),
-            #     7: ((0, 0, 0), (3, 3, 800)),
-            # },
-
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (1, 1, 800)),
-                2: ((0, 0, 0), (2, 2, 800)),
-                3: ((0, 0, 0), (3, 3, 800)),
-                4: ((0, 0, 0), (4, 4, 800)),
-                5: ((0, 0, 0), (5, 5, 800)),
-                6: ((0, 0, 0), (5, 5, 800)),
-                7: ((0, 0, 0), (5, 5, 800)),
-            },
-        ]
+        "index": lambda e: get_employee_extra_nights(employees, e),
+        "limits": night_limits
     }
 
-    add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals,employees, employees_stats)
-                
     holiday_input = {
-        "prefix" : "holiday",
-        "applicable": lambda e: get_employee_max_shifts(employees,e) > 0,
+        "prefix": "holiday",
+        "applicable": lambda e: get_employee_max_shifts(employees, e) > 0,
         "lambda": lambda e, s, d: is_holiday(d),
-        "index" : lambda e:  0,
-        "limits" : [
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (1, 1, 300)),
-                2: ((0, 0, 0), (1, 2, 300)),
-                3: ((0, 0 ,0), (2, 3, 300)),
-                4: ((0, 0, 0), (2, 4, 300)),
-                5: ((0, 0, 0), (3, 5, 300)),
-                6: ((0, 0, 0), (3, 5, 300)),
-                7: ((0, 0, 0), (4, 5, 300)),
-            },
-        ]
+        "index": lambda e: 0,
+        "limits": holiday_limits
     }
 
-    add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
+    internal_input = {
+        "prefix": "internal",
+        "applicable": lambda e: get_employee_max_shifts(employees, e) > 0 and can_do_internal(employees,
+                                                                                              e) and can_do_external(
+            employees, e),
+        "lambda": lambda e, s, d: is_internal(s),
+        "index": lambda e: 2 if get_employee_level(employees, e) == "D" else 1 if get_employee_level(employees,
+                                                                                                     e) == "C" else 0,
+        "limits": internal_limits
+    }
 
     virtual_input = {
-        "prefix" : "virtual",
+        "prefix": "virtual",
         "applicable": lambda ee: get_employee_virtual_shifts(employees, ee) > 0,
         "set_lambda": lambda ee: [virtual_work[ee, dd] for dd in range(month_days)],
         "max_value": 7,
-        "index" : lambda e:  0,
-        "limits" : [
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (0, 0, 0)),
-                2: ((0, 0, 0), (0, 0, 0)),
-                3: ((1, 0 ,1000), (1, 1, 0)),
-                4: ((2, 0, 1000), (2, 2, 0)),
-                5: ((2, 0, 1500), (2, 2, 0)),
-                6: ((2, 0, 1500), (2, 2, 0)),
-                7: ((2, 0, 1500), (2, 2, 0)),
-            },
-        ]
+        "index": lambda e: 0,
+        "limits": virtual_limits
     }
 
+    add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals,employees, employees_stats)
+    add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
     add_constraints(model, work, virtual_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
-
-    internal_input = {
-        "prefix" : "internal",
-        "applicable": lambda e: get_employee_max_shifts(employees,e) > 0 and can_do_internal(employees,e) and can_do_external(employees, e),
-        "lambda": lambda e, s, d: is_internal(s),
-        "index" : lambda e:  2 if get_employee_level(employees,e) == "D" else 1 if  get_employee_level(employees,e) == "C" else 0,
-        "limits" : [
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (1, 1, 500)),
-                2: ((0, 0, 0), (1, 2, 500)),
-                3: ((0, 0 ,0), (1, 3, 500)),
-                4: ((0, 0, 0), (1, 4, 500)),
-                5: ((0, 0, 0), (2, 5, 500)),
-                6: ((0, 0, 0), (2, 6, 500)),
-                7: ((0, 0, 0), (2, 7, 500)),
-            },
-
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (1, 1, 200)),
-                2: ((1, 0, 200), (1, 2, 200)),
-                3: ((1, 1, 200), (1, 3, 200)),
-                4: ((1, 1, 200), (1, 4, 200)),
-                5: ((1, 2, 200), (2, 5, 200)),
-                6: ((1, 2, 0), (3, 6, 200)),
-                7: ((1, 2, 0), (3, 7, 200)),
-            },
-
-            {
-                0: ((0, 0, 0), (0, 0, 0)),
-                1: ((0, 0, 0), (1, 1, 200)),
-                2: ((1, 0, 200), (2, 2, 200)),
-                3: ((2, 1, 200), (3, 3, 200)),
-                4: ((3, 1, 200), (4, 4, 200)),
-                5: ((3, 1, 200), (4, 5, 200)),
-                6: ((0, 0, 0), (5, 6, 200)),
-                7: ((0, 0, 0), (6, 7, 200)),
-            },
-        ]
-    }
-
     add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
 
     #positives - negatives
