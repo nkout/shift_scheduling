@@ -689,11 +689,10 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                     model.add_exactly_one(employee_works)
                     can_do = False
                     for s in get_day_part_shifts(dp_idx):
-                        if black_listed[e, s, d] == False:
+                        if not black_listed[e, s, d]:
                             can_do = True
                     if not can_do:
                         print(f'CAN DO ERROR {e} {s} {d}')
-
 
                 if slot_pref == "N":
                     for w in employee_works:
