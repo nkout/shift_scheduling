@@ -122,46 +122,25 @@ def get_employee_max_shifts(employees, e):
 def get_employee_preference(employees, e,d,i):
     return employees[e][6][d][i]
 
-def prefered_nights(employees, e):
+def get_prefs(employees, e, pref):
     count = 0
     for d in range(month_days):
-        if get_employee_preference(employees,e,d,2) == "P" or get_employee_preference(employees,e,d,2) == "WP":
-            if get_employee_preference(employees,e,d,1) != "P" and get_employee_preference(employees,e,d,1) != "WP":
-                if get_employee_preference(employees,e, d, 0) != "P" and get_employee_preference(employees,e, d, 0) != "WP":
-                    count += 1
+        for i in range(3):
+            if get_employee_preference(employees,e,d,i) == pref:
+                count += 1
     return count
 
 def get_pos_prefs(employees, e):
-    count = 0
-    for d in range(month_days):
-        for i in range(3):
-            if get_employee_preference(employees,e,d,i) == "WP":
-                count += 1
-    return count
+    return get_prefs(employees, e, "WP")
 
 def get_neg_prefs(employees, e):
-    count = 0
-    for d in range(month_days):
-        for i in range(3):
-            if get_employee_preference(employees,e,d,i) == "WN":
-                count += 1
-    return count
+    return get_prefs(employees, e, "WN")
 
 def get_neg(employees, e):
-    count = 0
-    for d in range(month_days):
-        for i in range(3):
-            if get_employee_preference(employees,e,d,i) == "N":
-                count += 1
-    return count
+    return get_prefs(employees, e, "N")
 
 def get_pos(employees,e):
-    count = 0
-    for d in range(month_days):
-        for i in range(3):
-            if get_employee_preference(employees,e,d,i) == "P":
-                count += 1
-    return count
+    return get_prefs(employees, e, "P")
 
 def is_night_dp_idx(idx):
     return idx == 2
@@ -634,7 +613,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         "prefix": "night",
         "applicable": lambda e: can_do_nights(employees, e) and get_employee_max_shifts(employees, e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "index": lambda e: get_employee_extra_nights(employees, e),
+        "index": lambda e: get_employee_extra_nights(employees, e) if get_employee_extra_nights(employees, e) < 2 else 2,
         "limits": night_limits
     }
 
