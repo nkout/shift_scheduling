@@ -558,10 +558,20 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                 employees_stats[e].add_var_weight(close_work_var, value)
 
     #not close nights <= check this if it can be relaxed
-    close_range = 2
     for e in range(num_employees):
-        for d in range(month_days - close_range):
-            model.add_at_most_one(work[e, s, d_] for d_ in range(d, d + close_range + 1) for s in get_night_shifts())
+        for d in range(month_days - close_nights_range):
+            close_count = f'close_nights_count_{e}_{d}'
+            employees_stats[e].count_vars[close_count] = model.new_int_var(0, get_employee_max_shifts(employees,e),close_count)
+            model.add(employees_stats[e].count_vars[close_count] == sum(work[e, s, d_] for d_ in range(d, d + close_nights_range + 1) for s in get_night_shifts()))
+            close_var = f'close_nights_{e}_{d}'
+            employees_stats[e].count_vars[close_var] = model.NewBoolVar(close_var)
+            model.add(employees_stats[e].count_vars[close_count] > 1).only_enforce_if(
+                employees_stats[e].count_vars[close_var])
+            model.add(employees_stats[e].count_vars[close_count] <= 1).only_enforce_if(
+                ~employees_stats[e].count_vars[close_var])
+            cost_literals.append(employees_stats[e].count_vars[close_var])
+            cost_coefficients.append(close_nights_penalty)
+            employees_stats[e].add_var_weight(employees_stats[e].count_vars[close_var], close_nights_penalty)
 
     #exclude shifts based to employee capability
     for e in range(num_employees):

@@ -55,6 +55,9 @@ salaries = {
     "max": 77
 }
 
+close_nights_range = 2
+close_nights_penalty = 4000
+
 close_shift_penalties = [2000, 200, 80, 40, 35, 10, 5, 4]
 
 night_limits = [
