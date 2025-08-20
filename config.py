@@ -9,7 +9,8 @@ next_month_first_is_holiday = False
 month_starts_with_internal_shift = False
 hot_periods = []
 filename = 'sept.csv'
-
+max_solve_time = 30
+max_solve_time_check = 4
 #end options
 ################################################################################
 
@@ -46,7 +47,15 @@ day_parts = [
     ["N1", "N2"]
 ]
 
-close_shift_penalties = [2000, 100, 80, 40, 35, 10, 5, 4]
+salaries = {
+    "weekday" : 10,
+    "Sa": 12,
+    "Su" : 14,
+    "holiday": 14,
+    "max": 77
+}
+
+close_shift_penalties = [2000, 200, 80, 40, 35, 10, 5, 4]
 
 night_limits = [
         {

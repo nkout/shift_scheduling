@@ -522,14 +522,16 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     for e in range(num_employees):
         weights = []
         costs = []
-        max_cost = 77  - 10 * get_employee_gift_shifts(employees,e)
+        max_cost = salaries["max"]  - 10 * get_employee_gift_shifts(employees,e)
         for d in range(month_days):
-            if is_sunday(d) or is_public_holiday(d):
-                day_cost = 14
+            if is_public_holiday(d):
+                day_cost = salaries["holiday"]
+            elif is_sunday(d):
+                day_cost = salaries["Su"]
             elif is_saturday(d):
-                day_cost = 12
+                day_cost = salaries["Sa"]
             else:
-                day_cost = 10
+                day_cost = salaries["weekday"]
             for s in range(num_shifts):
                 weights.append(work[e, s, d])
                 costs.append(day_cost)
@@ -737,7 +739,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20 if len(check_days) == 0 else 5
+    solver.parameters.max_time_in_seconds = max_solve_time if len(check_days) == 0 else max_solve_time_check
     #solver.parameters.log_search_progress = True
     #solver.parameters.enumerate_all_solutions = True
     #solver.parameters.num_search_workers = 8
@@ -780,7 +782,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
 def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
     for e in range(num_employees):
-        total_var_name = f'new_total_count_{e}'
+        total_var_name = f'cnst_total_count_{e}'
         if not total_var_name in employees_stats[e].count_vars:
             employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(employees,e),
                                                                               get_employee_max_shifts(employees,e),
@@ -797,7 +799,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                     ~employees_stats[e].count_vars[count_var_name])
 
         if specific_input["applicable"](e):
-            specific_var_name = f'new_{specific_input["prefix"]}_count_{e}'
+            specific_var_name = f'cnst_{specific_input["prefix"]}_count_{e}'
             if "lambda" in specific_input:
                 employees_stats[e].count_vars[specific_var_name] = model.new_int_var(0, get_employee_max_shifts(employees,e),
                                                                                      specific_var_name)
@@ -815,8 +817,8 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
             for shift_count in range(get_employee_min_shifts(employees,e), get_employee_max_shifts(employees,e) + 1):
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
 
-                soft_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
-                hard_var_name = f'new_{specific_input["prefix"]}_{e}_greater_than_{hard_lim}'
+                soft_var_name = f'cnst_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
+                hard_var_name = f'cnst_{specific_input["prefix"]}_{e}_greater_than_{hard_lim}'
 
                 if soft_var_name not in employees_stats[e].count_vars:
                     employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
@@ -849,8 +851,8 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                 #===================================================================================================
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][0]
 
-                soft_var_name = f'new_{specific_input["prefix"]}_{e}_lower_than_{soft_lim}'
-                hard_var_name = f'new_{specific_input["prefix"]}_{e}_lower_than_{hard_lim}'
+                soft_var_name = f'cnst_{specific_input["prefix"]}_{e}_lower_than_{soft_lim}'
+                hard_var_name = f'cnst_{specific_input["prefix"]}_{e}_lower_than_{hard_lim}'
 
                 if soft_var_name not in employees_stats[e].count_vars:
                     employees_stats[e].count_vars[soft_var_name] = model.new_bool_var(soft_var_name)
