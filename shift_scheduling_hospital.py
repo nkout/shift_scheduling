@@ -639,12 +639,9 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     internal_input = {
         "prefix": "internal",
-        "applicable": lambda e: get_employee_max_shifts(employees, e) > 0 and can_do_internal(employees,
-                                                                                              e) and can_do_external(
-            employees, e),
+        "applicable": lambda e: get_employee_max_shifts(employees, e) > 0 and can_do_internal(employees,e) and can_do_external(employees, e),
         "lambda": lambda e, s, d: is_internal(s),
-        "index": lambda e: 2 if get_employee_level(employees, e) == "D" else 1 if get_employee_level(employees,
-                                                                                                     e) == "C" else 0,
+        "index": lambda e: 2 if get_employee_level(employees, e) == "D" else 1 if get_employee_level(employees,e) == "C" else 0,
         "limits": internal_limits
     }
 
