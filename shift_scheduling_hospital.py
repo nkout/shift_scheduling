@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shutil
 from operator import truediv
 
 import pandas
@@ -465,7 +466,10 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
         tmp.write(html_footer)
     finally:
         tmp.close()
-        webbrowser.open('file://' + os.path.realpath(tmp.name))
+        if colab_execution:
+            shutil.copyfile(os.path.realpath(tmp.name), os.path.join(os.path.realpath("."),"solution.html"))
+        else:
+            webbrowser.open('file://' + os.path.realpath(tmp.name))
 
 def can_do_nights(employees,e):
     for x in day_parts[2]:

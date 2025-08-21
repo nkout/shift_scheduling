@@ -11,6 +11,7 @@ hot_periods = []
 filename = 'sept.csv'
 max_solve_time = 30
 max_solve_time_check = 4
+colab_execution=False
 #end options
 ################################################################################
 
