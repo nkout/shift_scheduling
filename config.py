@@ -9,7 +9,7 @@ next_month_first_is_holiday = False
 month_starts_with_internal_shift = False
 hot_periods = []
 filename = 'sept.csv'
-max_solve_time = 30
+max_solve_time = 90
 max_solve_time_check = 4
 colab_execution=False
 #end options
@@ -59,7 +59,7 @@ salaries = {
 close_nights_range = 2
 close_nights_penalty = 4000
 
-close_shift_penalties = [2000, 200, 80, 40, 35, 10, 5, 4]
+close_shift_penalties = [6000, 500, 80, 60]
 
 night_limits = [
         {
@@ -103,7 +103,7 @@ holiday_limits = [
             2: ((0, 0, 0), (1, 2, 600)),
             3: ((1, 0, 800), (1, 2, 600)),
             4: ((2, 1, 400), (2, 4, 600)),
-            5: ((2, 2, 1000), (2, 4, 600)),
+            5: ((2, 1, 1000), (2, 4, 600)),
             6: ((2, 2, 500), (3, 4, 500)),
             7: ((2, 2, 500), (3, 4, 500)),
         },
