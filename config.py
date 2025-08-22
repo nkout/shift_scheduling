@@ -56,6 +56,8 @@ salaries = {
     "max": 77
 }
 
+pref_factor = 300
+
 close_nights_range = 2
 close_nights_penalty = 4000
 

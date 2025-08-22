@@ -674,7 +674,6 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
             virtual_negative_added = False
             for dp_idx in range(len(day_parts)):
                 employee_works = [work[e, s, d] for s in get_day_part_shifts(dp_idx)]
-
                 slot_pref = get_employee_preference(employees,e, d, dp_idx)
 
                 if slot_pref == "P":
@@ -694,22 +693,20 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                         virtual_negative_added = True
 
                 if slot_pref == "WN" or slot_pref == "WP":
-                    name = f"worked_{e}_{d}_{dp_idx}"
+                    name = f"worked_pref_{e}_{d}_{dp_idx}"
                     worked = model.new_bool_var(name)
-                    employee_works.append(~worked)
+
+
+                    avail_slots = (3*month_days - negs - pos)
+                    weight = int(round(pref_factor * (avail_slots - pos_prefs - neg_prefs) / (avail_slots + 1)))
+                    if slot_pref == "WN":
+                        employee_works.append(~worked)
+                    else:
+                        employee_works.append(worked)
                     model.add_exactly_one(employee_works)
                     cost_literals.append(worked)
-
-                    avail_days = (3*month_days - neg_prefs - negs - pos_prefs - pos) //3
-                    weight = avail_days // 2
-                    if weight <= 0:
-                        weight = 1
-                    if slot_pref == "WN":
-                        cost_coefficients.append(weight)
-                        employees_stats[e].add_var_weight(worked,weight)
-                    else:
-                        cost_coefficients.append(-weight)
-                        employees_stats[e].add_var_weight(worked,-weight)
+                    cost_coefficients.append(weight)
+                    employees_stats[e].add_var_weight(worked, weight)
 
 
     #hot periods
