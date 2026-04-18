@@ -227,7 +227,7 @@ def validate_input(employees):
     for e in employees:
         if e[1] not in levels:
             valid = False
-            print ("not in levels")
+            print (f"{e} not in levels")
         if len(e[2]) != 2:
             valid = False
             print("invalid shift num pref")
@@ -244,7 +244,7 @@ def validate_input(employees):
             for prf in day_pref:
                 if prf not in ["I", "WP", "P", "WN", "N"]:
                     valid = False
-                    print ("wrong pref str")
+                    print (f"wrong pref str {prf}")
 
     return valid
 
@@ -629,7 +629,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         "prefix": "night",
         "applicable": lambda e: can_do_nights(employees, e) and get_employee_max_shifts(employees, e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "index": lambda e: get_employee_extra_nights(employees, e) if get_employee_extra_nights(employees, e) < 2 else 2,
+        "index": lambda e: get_employee_extra_nights(employees, e) if get_employee_extra_nights(employees, e) < 5 else 5,
         "limits": night_limits
     }
 
@@ -651,11 +651,12 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     virtual_input = {
         "prefix": "virtual",
-        "applicable": lambda ee: get_employee_virtual_shifts(employees, ee) > 0,
+        "applicable": lambda ee: True,
         "set_lambda": lambda ee: [virtual_work[ee, dd] for dd in range(month_days)],
         "max_value": 7,
-        "index": lambda e: 0,
-        "limits": virtual_limits
+        "index": lambda ee: 1 if get_employee_virtual_shifts(employees, ee) > 0 else 0,
+        "limits": virtual_limits,
+        "total_lambda": lambda e, s, d: is_night_shift(s),
     }
 
     add_constraints(model, work, night_input, num_employees, num_shifts, cost_coefficients, cost_literals,employees, employees_stats)
@@ -683,7 +684,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                         if not black_listed[e, s, d]:
                             can_do = True
                     if not can_do:
-                        print(f'CAN DO ERROR {e} {s} {d}')
+                        print(f'CAN DO ERROR e {e} s {s} d {d}')
 
                 if slot_pref == "N":
                     for w in employee_works:
@@ -745,6 +746,9 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         with open(output_proto, "w") as text_file:
             text_file.write(str(model))
 
+    with open("model.pbtxt", "w") as f:
+        f.write(str(model.Proto()))
+
     # Solve the model.
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_solve_time if len(check_days) == 0 else max_solve_time_check
@@ -755,6 +759,18 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     #solver.parameters.linearization_level = 0
     #solver.parameters.cp_model_presolve = True
     #solver.parameters.cp_model_probing_level = 0
+    #
+    # solver.parameters.log_search_progress = True
+    # solver.parameters.cp_model_presolve = True
+    # #solver.parameters.compute_intermediate_stats = True
+    # solver.parameters.log_to_stdout = True
+    #
+    #
+    # print(model.validate())
+
+    #solver.parameters.log_to_stdout = True
+    #model.Proto().ClearField("solution_hint")
+    #print(model.Proto())
 
     solution_printer = cp_model.ObjectiveSolutionPrinter()  if len(check_days) == 0 else MuteSolutionPrinter()
     status = solver.solve(model, solution_printer)
@@ -790,15 +806,19 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
 def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
     for e in range(num_employees):
-        total_var_name = f'cnst_total_count_{e}'
-        if not total_var_name in employees_stats[e].count_vars:
-            employees_stats[e].count_vars[total_var_name] = model.new_int_var(get_employee_min_shifts(employees,e),
+        start_shifts = 0 if "total_lambda" in specific_input else get_employee_min_shifts(employees,e)
+        total_var_name = f'cnst_total_count_{e}' if "total_lambda" not in specific_input else f'cnst_total_count_{specific_input["prefix"]}_{e}'
+
+        if total_var_name not in employees_stats[e].count_vars:
+            employees_stats[e].count_vars[total_var_name] = model.new_int_var(start_shifts,
                                                                               get_employee_max_shifts(employees,e),
                                                                               total_var_name)
-            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days)]
+            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if ("total_lambda" not in specific_input) or specific_input["total_lambda"](e, s, d)]
+            if "total_lambda" in specific_input:
+                print (f'{total_var_name} = sum of {len(employee_works)} variables')
             model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
 
-            for shift_count in range(get_employee_min_shifts(employees,e), get_employee_max_shifts(employees,e) + 1):
+            for shift_count in range(start_shifts, get_employee_max_shifts(employees,e) + 1):
                 count_var_name = f'{total_var_name}_{shift_count}'
                 employees_stats[e].count_vars[count_var_name] = model.new_bool_var(count_var_name)
                 model.add(employees_stats[e].count_vars[total_var_name] == shift_count).only_enforce_if(
@@ -822,7 +842,7 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                 print('wrong lamda')
                 exit(1)
 
-            for shift_count in range(get_employee_min_shifts(employees,e), get_employee_max_shifts(employees,e) + 1):
+            for shift_count in range(start_shifts, get_employee_max_shifts(employees,e) + 1):
                 soft_lim, hard_lim, penalty = specific_input["limits"][specific_input["index"](e)][shift_count][1]
 
                 soft_var_name = f'cnst_{specific_input["prefix"]}_{e}_greater_than_{soft_lim}'
@@ -923,6 +943,25 @@ def main(_):
             format_input(list_data, employees, employees_stats)
             result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
             print(f"day {d+1} = {result}")
+
+        for d in range(month_days -4):
+            check_days = []
+            check_days.append(d)
+            check_days.append(d+1)
+            check_days.append(d+2)
+            check_days.append(d + 3)
+            check_days.append(d + 4)
+            cost_literals = []
+            cost_coefficients = []
+            work = {}
+            virtual_work = {}
+            black_listed = {}
+            employees = []
+            employees_stats = []
+
+            format_input(list_data, employees, employees_stats)
+            result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
+            print(f"day {d+1} + 4 days = {result}")
 
 
 if __name__ == "__main__":
