@@ -393,7 +393,7 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
         line.append(sa)
         line.append(su)
         line.append(oh)
-        line.append(virtual_w)
+        line.append(html_bold_if(virtual_w, get_employee_virtual_shifts(employees,e) > 0))
         line.append(','.join(days))
         line.append(','.join(employees_stats[e].print_weights(solver, 80)))
 
@@ -629,7 +629,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         "prefix": "night",
         "applicable": lambda e: can_do_nights(employees, e) and get_employee_max_shifts(employees, e) > 0,
         "lambda": lambda e, s, d: is_night_shift(s),
-        "index": lambda e: get_employee_extra_nights(employees, e) if get_employee_extra_nights(employees, e) < 5 else 5,
+        "index": lambda e: get_employee_extra_nights(employees, e),
         "limits": night_limits
     }
 
@@ -653,7 +653,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         "prefix": "virtual",
         "applicable": lambda ee: True,
         "set_lambda": lambda ee: [virtual_work[ee, dd] for dd in range(month_days)],
-        "max_value": 7,
+        "max_value": 2,
         "index": lambda ee: 1 if get_employee_virtual_shifts(employees, ee) > 0 else 0,
         "limits": virtual_limits,
         "total_lambda": lambda e, s, d: is_night_shift(s),
@@ -663,7 +663,17 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     add_constraints(model, work, holiday_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
     add_constraints(model, work, virtual_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
     add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
-
+    
+    for grp in exclusive_groups:
+        print(f"exclusive group {[get_employee_name(employees,e) for e in grp]}")
+        for d in range(month_days):
+            for dp_idx in range(len(day_parts)):
+                grp_works = []
+                for s in get_day_part_shifts(dp_idx):
+                    for e in grp:
+                        grp_works.append(work[e, s, d])
+                model.add_at_most_one(grp_works)
+                
     #positives - negatives
     for e in range(num_employees):
         pos_prefs = get_pos_prefs(employees,e)
@@ -813,9 +823,9 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
             employees_stats[e].count_vars[total_var_name] = model.new_int_var(start_shifts,
                                                                               get_employee_max_shifts(employees,e),
                                                                               total_var_name)
-            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if ("total_lambda" not in specific_input) or specific_input["total_lambda"](e, s, d)]
-            if "total_lambda" in specific_input:
-                print (f'{total_var_name} = sum of {len(employee_works)} variables')
+            employee_works = [work[e, s, d] for s in range(num_shifts) for d in range(month_days) if (("total_lambda" not in specific_input) or specific_input["total_lambda"](e, s, d))]
+            #if "total_lambda" in specific_input:
+            #    print (f'{total_var_name} = sum of {len(employee_works)} variables')
             model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
 
             for shift_count in range(start_shifts, get_employee_max_shifts(employees,e) + 1):
