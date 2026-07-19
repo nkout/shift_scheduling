@@ -12,6 +12,24 @@ from ortools.sat.python import cp_model
 
 month_starts_with_internal = 1 if month_starts_with_internal_shift  else 0
 
+# time budget (seconds) for each experimental re-solve during infeasibility diagnosis
+diagnostic_solve_time = 10
+
+# When RELAX_HARD is True, hard rules are turned into soft ones (a violation indicator
+# with a big penalty) so an infeasible month still yields a best-effort schedule and we
+# can report exactly which rules had to be broken. Reset per solve.
+RELAX_HARD = False
+RELAX_PENALTY = 100000
+relaxations = []  # list of (bool_var, description) for softened hard-constraint violations
+
+def register_violation(model, cost_literals, cost_coefficients, description, weight=RELAX_PENALTY):
+    """Create a penalized 'this hard rule was broken' indicator and track it for reporting."""
+    v = model.new_bool_var(f"violation_{len(relaxations)}")
+    relaxations.append((v, description))
+    cost_literals.append(v)
+    cost_coefficients.append(weight)
+    return v
+
 
 _OUTPUT_PROTO = flags.DEFINE_string(
     "output_proto", "", "Output file to write the cp_model proto to."
@@ -95,6 +113,9 @@ def is_public_holiday(d):
 
 def get_night_shifts():
     return [shifts.index(x) for x in day_parts[2]]
+
+def day_part_name(dp_idx):
+    return ["morning", "afternoon", "night"][dp_idx] if dp_idx < 3 else str(dp_idx)
 
 def get_employee_name(employees, e):
     return employees[e][0]
@@ -490,13 +511,14 @@ class MuteSolutionPrinter(cp_model.CpSolverSolutionCallback):
     def solution_count(self) -> int:
         return self.__solution_count
 
-def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days):
+def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days, diagnostic=False):
     """Solves the shift scheduling problem."""
     num_employees = len(employees)
     num_shifts = len(shifts)
     first_day_index = week.index(month_first_day)
 
     model = cp_model.CpModel()
+    relaxations.clear()
 
     if not validate_input(employees):
         return
@@ -542,7 +564,12 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
             weights.append(virtual_work[e, d])
             costs.append(day_cost)
         weighted_sum = sum(weights[i] * costs[i] for i in range(len(costs)))
-        model.Add(weighted_sum <= max_cost)
+        if RELAX_HARD:
+            v = register_violation(model, cost_literals, cost_coefficients,
+                                   f"{get_employee_name(employees,e)}: salary cap ({max_cost}) exceeded", 2 * RELAX_PENALTY)
+            model.Add(weighted_sum <= max_cost).OnlyEnforceIf(~v)
+        else:
+            model.Add(weighted_sum <= max_cost)
 
     #not close shifts
     for e in range(num_employees):
@@ -607,7 +634,12 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         for s in range(num_shifts):
             works = [work[e, s, d] for e in range(num_employees)]
             if shifts[s] in day_shifts:
-                model.add_exactly_one(works)
+                if RELAX_HARD:
+                    v = register_violation(model, cost_literals, cost_coefficients,
+                                           f"shift {shifts[s]} on day {d+1} LEFT UNCOVERED", 5 * RELAX_PENALTY)
+                    model.add_exactly_one(works + [v])
+                else:
+                    model.add_exactly_one(works)
                 total_shifts += 1
             else:
                 for e in range(num_employees):
@@ -620,7 +652,13 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
             continue
 
         if (d + month_starts_with_internal) % len(shift_groups) == 1:
-            model.add_exactly_one([virtual_work[e, d] for e in range(num_employees)])
+            vw = [virtual_work[e, d] for e in range(num_employees)]
+            if RELAX_HARD:
+                v = register_violation(model, cost_literals, cost_coefficients,
+                                       f"virtual reserve on day {d+1} LEFT UNCOVERED", 5 * RELAX_PENALTY)
+                model.add_exactly_one(vw + [v])
+            else:
+                model.add_exactly_one(vw)
         else:
             for e in range(num_employees):
                 model.add(virtual_work[e, d] == False)
@@ -665,14 +703,21 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     add_constraints(model, work, internal_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats)
     
     for grp in exclusive_groups:
-        print(f"exclusive group {[get_employee_name(employees,e) for e in grp]}")
+        if not diagnostic:
+            print(f"exclusive group {[get_employee_name(employees,e) for e in grp]}")
         for d in range(month_days):
             for dp_idx in range(len(day_parts)):
                 grp_works = []
                 for s in get_day_part_shifts(dp_idx):
                     for e in grp:
                         grp_works.append(work[e, s, d])
-                model.add_at_most_one(grp_works)
+                if RELAX_HARD:
+                    grp_names = [get_employee_name(employees, e) for e in grp]
+                    v = register_violation(model, cost_literals, cost_coefficients,
+                                           f"exclusive group {grp_names} share day {d+1} {day_part_name(dp_idx)}")
+                    model.add(sum(grp_works) <= 1).OnlyEnforceIf(~v)
+                else:
+                    model.add_at_most_one(grp_works)
                 
     #positives - negatives
     for e in range(num_employees):
@@ -688,7 +733,12 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                 slot_pref = get_employee_preference(employees,e, d, dp_idx)
 
                 if slot_pref == "P":
-                    model.add_exactly_one(employee_works)
+                    if RELAX_HARD:
+                        v = register_violation(model, cost_literals, cost_coefficients,
+                                               f"{get_employee_name(employees,e)}: must-work (P) NOT honored, day {d+1} {day_part_name(dp_idx)}", 3 * RELAX_PENALTY)
+                        model.add_exactly_one(employee_works + [v])
+                    else:
+                        model.add_exactly_one(employee_works)
                     can_do = False
                     for s in get_day_part_shifts(dp_idx):
                         if not black_listed[e, s, d]:
@@ -697,11 +747,20 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                         print(f'CAN DO ERROR e {e} s {s} d {d}')
 
                 if slot_pref == "N":
-                    for w in employee_works:
-                        model.add(w == 0)
-                    if not virtual_negative_added:
-                        model.add(virtual_work[e, d] == False)
-                        virtual_negative_added = True
+                    if RELAX_HARD:
+                        v = register_violation(model, cost_literals, cost_coefficients,
+                                               f"{get_employee_name(employees,e)}: must-not-work (N) VIOLATED, day {d+1} {day_part_name(dp_idx)}", 3 * RELAX_PENALTY)
+                        for w in employee_works:
+                            model.add(w == 0).OnlyEnforceIf(~v)
+                        if not virtual_negative_added:
+                            model.add(virtual_work[e, d] == False).OnlyEnforceIf(~v)
+                            virtual_negative_added = True
+                    else:
+                        for w in employee_works:
+                            model.add(w == 0)
+                        if not virtual_negative_added:
+                            model.add(virtual_work[e, d] == False)
+                            virtual_negative_added = True
 
                 if slot_pref == "WN" or slot_pref == "WP":
                     name = f"worked_pref_{e}_{d}_{dp_idx}"
@@ -739,7 +798,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     avg_shifts = total_shifts // len(employees)
     rem_shifts = total_shifts % len(employees)
 
-    if len(check_days) == 0:
+    if len(check_days) == 0 and not diagnostic:
         print("avg shifts: " + str(avg_shifts) + " " + str(rem_shifts))
         print("total shifts " + str(total_shifts))
 
@@ -761,7 +820,12 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     # Solve the model.
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = max_solve_time if len(check_days) == 0 else max_solve_time_check
+    if diagnostic:
+        solver.parameters.max_time_in_seconds = diagnostic_solve_time
+    elif len(check_days) == 0:
+        solver.parameters.max_time_in_seconds = max_solve_time
+    else:
+        solver.parameters.max_time_in_seconds = max_solve_time_check
     #solver.parameters.log_search_progress = True
     #solver.parameters.enumerate_all_solutions = True
     #solver.parameters.num_search_workers = 8
@@ -782,10 +846,10 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
     #model.Proto().ClearField("solution_hint")
     #print(model.Proto())
 
-    solution_printer = cp_model.ObjectiveSolutionPrinter()  if len(check_days) == 0 else MuteSolutionPrinter()
+    solution_printer = cp_model.ObjectiveSolutionPrinter()  if (len(check_days) == 0 and not diagnostic) else MuteSolutionPrinter()
     status = solver.solve(model, solution_printer)
 
-    if len(check_days) == 0:
+    if len(check_days) == 0 and not diagnostic:
         print("Status = %s" % solver.status_name(status))
 
         print("Statistics")
@@ -796,27 +860,31 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     # Print solution.
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        if len(check_days) == 0:
+        if RELAX_HARD and not diagnostic:
+            print_broken_rules(solver)
+        if len(check_days) == 0 and not diagnostic:
             print("SOLVED")
             print_solution(solver, status, work, virtual_work, employees, employees_stats)
         return True
     else:
-        print("NOT SOLVED :-(")
+        if not diagnostic:
+            print("NOT SOLVED :-(")
 
-        if status == cp_model.INFEASIBLE:
-            # print infeasible boolean variables index
-            print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
+            if status == cp_model.INFEASIBLE:
+                # print infeasible boolean variables index
+                print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
 
-            # print infeasible boolean variables
-            infeasibles = solver.SufficientAssumptionsForInfeasibility()
-            for i in infeasibles:
-                print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
+                # print infeasible boolean variables
+                infeasibles = solver.SufficientAssumptionsForInfeasibility()
+                for i in infeasibles:
+                    print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
         return False
 
 
 def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
     for e in range(num_employees):
-        start_shifts = 0 if "total_lambda" in specific_input else get_employee_min_shifts(employees,e)
+        # in RELAX_HARD mode the MIN floor becomes soft, so start the count domain at 0
+        start_shifts = 0 if ("total_lambda" in specific_input or RELAX_HARD) else get_employee_min_shifts(employees,e)
         total_var_name = f'cnst_total_count_{e}' if "total_lambda" not in specific_input else f'cnst_total_count_{specific_input["prefix"]}_{e}'
 
         if total_var_name not in employees_stats[e].count_vars:
@@ -827,6 +895,14 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
             #if "total_lambda" in specific_input:
             #    print (f'{total_var_name} = sum of {len(employee_works)} variables')
             model.add(employees_stats[e].count_vars[total_var_name] == sum(employee_works))
+
+            if RELAX_HARD and "total_lambda" not in specific_input:
+                real_min = get_employee_min_shifts(employees, e)
+                if real_min > 0:
+                    below = register_violation(model, cost_literals, cost_coefficients,
+                        f"{get_employee_name(employees,e)}: total shifts below MIN {real_min}", 2 * RELAX_PENALTY)
+                    model.add(employees_stats[e].count_vars[total_var_name] >= real_min).OnlyEnforceIf(~below)
+                    model.add(employees_stats[e].count_vars[total_var_name] < real_min).OnlyEnforceIf(below)
 
             for shift_count in range(start_shifts, get_employee_max_shifts(employees,e) + 1):
                 count_var_name = f'{total_var_name}_{shift_count}'
@@ -873,8 +949,17 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                         ~employees_stats[e].count_vars[hard_var_name])
 
                 if shift_count > hard_lim:
-                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
-                                  ~employees_stats[e].count_vars[hard_var_name])
+                    if RELAX_HARD:
+                        viol_key = f'viol_{specific_input["prefix"]}_upper_{e}'
+                        if viol_key not in employees_stats[e].count_vars:
+                            employees_stats[e].count_vars[viol_key] = register_violation(model, cost_literals, cost_coefficients,
+                                f"{get_employee_name(employees,e)}: {specific_input['prefix']} shifts over hard MAX")
+                        model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[hard_var_name],
+                                      employees_stats[e].count_vars[viol_key])
+                    else:
+                        model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[hard_var_name])
 
                 if hard_lim > soft_lim and shift_count > soft_lim:
                     soft_lim_var = f'{soft_var_name}_on_{shift_count}'
@@ -907,8 +992,17 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                         ~employees_stats[e].count_vars[hard_var_name])
 
                 if hard_lim > 0:
-                    model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
-                                  ~employees_stats[e].count_vars[hard_var_name])
+                    if RELAX_HARD:
+                        viol_key = f'viol_{specific_input["prefix"]}_lower_{e}'
+                        if viol_key not in employees_stats[e].count_vars:
+                            employees_stats[e].count_vars[viol_key] = register_violation(model, cost_literals, cost_coefficients,
+                                f"{get_employee_name(employees,e)}: {specific_input['prefix']} shifts under hard MIN")
+                        model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[hard_var_name],
+                                      employees_stats[e].count_vars[viol_key])
+                    else:
+                        model.add_bool_or(~employees_stats[e].count_vars[f'{total_var_name}_{shift_count}'],
+                                      ~employees_stats[e].count_vars[hard_var_name])
 
                 if soft_lim > 0 and soft_lim > hard_lim:
                     soft_lim_var = f'{soft_var_name}_on_{shift_count}'
@@ -919,6 +1013,176 @@ def add_constraints(model, work, specific_input, num_employees, num_shifts, cost
                     cost_literals.append(employees_stats[e].count_vars[soft_lim_var])
                     cost_coefficients.append(penalty)
                     employees_stats[e].add_var_weight(employees_stats[e].count_vars[soft_lim_var],penalty)
+
+
+def print_broken_rules(solver):
+    """After a RELAX_HARD solve, list which softened hard rules the solution had to break."""
+    broken = [desc for (v, desc) in relaxations if solver.boolean_value(v)]
+    print("\n" + "=" * 72)
+    print("BEST-EFFORT SOLUTION — BROKEN HARD RULES")
+    print("=" * 72)
+    if not broken:
+        print("None — the relaxed solve found a schedule that breaks no hard rule")
+        print("(the original infeasibility may be a solver time-limit artifact).")
+    else:
+        print(f"{len(broken)} hard rule(s) had to be broken to build a schedule:\n")
+        for desc in broken:
+            print(f"  - {desc}")
+        print("\nEach line above is a constraint that could not be satisfied; relaxing the")
+        print("underlying data/config for these is what would make the month truly feasible.")
+    print("=" * 72 + "\n")
+
+
+def solve_best_effort(list_data):
+    """Relax every hard rule to soft-with-penalty and solve, to get a schedule + broken-rule report."""
+    global RELAX_HARD
+    print("\n" + "=" * 72)
+    print("BEST-EFFORT (RELAXED) SOLVE — producing a schedule despite infeasibility")
+    print("=" * 72)
+    RELAX_HARD = True
+    try:
+        cost_literals = []
+        cost_coefficients = []
+        work = {}
+        virtual_work = {}
+        black_listed = {}
+        employees = []
+        employees_stats = []
+        format_input(list_data, employees, employees_stats)
+        solve_shift_scheduling("", cost_literals, cost_coefficients, work,
+                               virtual_work, black_listed, employees, employees_stats, [])
+    finally:
+        RELAX_HARD = False
+
+
+def _loose_limits_table(n_indices=6, max_count=31):
+    """A *_limits replacement that imposes no bound (lower 0, upper huge, no penalty)."""
+    entry = {c: ((0, 0, 0), (99, 99, 0)) for c in range(max_count + 1)}
+    return [dict(entry) for _ in range(n_indices)]
+
+
+def _solve_full(list_data, diagnostic=True, zero_mins=False):
+    """Build a fresh model from list_data and solve the whole month. Returns True if feasible."""
+    cost_literals = []
+    cost_coefficients = []
+    work = {}
+    virtual_work = {}
+    black_listed = {}
+    employees = []
+    employees_stats = []
+    format_input(list_data, employees, employees_stats)
+    if zero_mins:
+        for emp in employees:
+            emp[2][0] = 0
+    return solve_shift_scheduling("", cost_literals, cost_coefficients, work,
+                                  virtual_work, black_listed, employees,
+                                  employees_stats, [], diagnostic=diagnostic)
+
+
+def report_capacity(list_data):
+    """Aggregate necessary-condition check: required shifts per category vs available capacity."""
+    employees = []
+    stats = []
+    format_input(list_data, employees, stats)
+    n = len(employees)
+
+    total = nights = internal = holiday = virtual = 0
+    for d in range(month_days):
+        if is_holiday(d):
+            day_shifts = set(holiday_shifts)
+        else:
+            day_shifts = set(week_day_shifts)
+        day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+        for s in range(len(shifts)):
+            if shifts[s] in day_shifts:
+                total += 1
+                if is_night_shift(s):
+                    nights += 1
+                if is_internal(s):
+                    internal += 1
+                if is_holiday(d):
+                    holiday += 1
+        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+            virtual += 1
+
+    sum_max = sum(get_employee_max_shifts(employees, e) for e in range(n))
+    sum_min = sum(get_employee_min_shifts(employees, e) for e in range(n))
+
+    # night capacity: sum over night-capable doctors of the largest night hard-cap in their MIN..MAX range
+    night_cap = 0
+    for e in range(n):
+        if not (can_do_nights(employees, e) and get_employee_max_shifts(employees, e) > 0):
+            continue
+        idx = get_employee_extra_nights(employees, e)
+        if idx >= len(night_limits):
+            continue
+        caps = [night_limits[idx][c][1][1] for c in range(get_employee_min_shifts(employees, e),
+                                                           get_employee_max_shifts(employees, e) + 1)
+                if c in night_limits[idx]]
+        night_cap += max(caps) if caps else 0
+
+    internal_cap = sum(get_employee_max_shifts(employees, e) for e in range(n) if can_do_internal(employees, e))
+    virtual_eligible = sum(1 for e in range(n) if get_employee_virtual_shifts(employees, e) > 0)
+
+    def line(label, req, cap, cap_label):
+        flag = "  <-- SHORTFALL" if cap < req else ""
+        print(f"  {label:24s} required={req:4d}   {cap_label}={cap:4d}{flag}")
+
+    print("\n--- capacity report (necessary conditions) ---")
+    line("total shifts", total, sum_max, "sum(MAX) ")
+    if sum_min > total:
+        print(f"  {'MIN totals':24s} sum(MIN)={sum_min:4d}   > total shifts={total:<4d}  <-- OVER-CONSTRAINED (MINs exceed demand)")
+    else:
+        print(f"  {'MIN totals':24s} sum(MIN)={sum_min:4d}   (total shifts={total})")
+    line("night shifts", nights, night_cap, "night hard-cap sum")
+    line("internal shifts", internal, internal_cap, "internal-capable MAX")
+    line("virtual reserves", virtual, virtual_eligible * 2, "eligible x2       ")
+    print(f"  {'holiday shifts':24s} required={holiday:4d}   (covered from sum(MAX)={sum_max})")
+
+
+def diagnose_infeasibility(list_data):
+    """Run when the full month is infeasible: capacity report + one-family-at-a-time relaxation."""
+    print("\n" + "=" * 72)
+    print("INFEASIBILITY DIAGNOSIS")
+    print("=" * 72)
+
+    report_capacity(list_data)
+
+    print("\n--- constraint-family isolation (relax ONE family, re-solve full month) ---")
+    print("    a family whose relaxation flips the month to FEASIBLE is a prime suspect")
+    print(f"    (each re-solve capped at {diagnostic_solve_time}s; 'inconclusive' = hit time limit)\n")
+
+    def report(label, res):
+        verdict = "FEASIBLE when relaxed  <-- suspect" if res else "still infeasible"
+        print(f"  relax {label:22s} -> {verdict}")
+
+    loose = _loose_limits_table()
+    for fam in ["night_limits", "holiday_limits", "internal_limits", "virtual_limits"]:
+        saved = globals()[fam]
+        globals()[fam] = loose
+        try:
+            report(fam, _solve_full(list_data))
+        finally:
+            globals()[fam] = saved
+
+    saved = globals()["exclusive_groups"]
+    globals()["exclusive_groups"] = []
+    try:
+        report("exclusive_groups", _solve_full(list_data))
+    finally:
+        globals()["exclusive_groups"] = saved
+
+    report("MIN totals (set to 0)", _solve_full(list_data, zero_mins=True))
+
+    saved = {fam: globals()[fam] for fam in ["night_limits", "holiday_limits", "internal_limits", "virtual_limits"]}
+    for fam in saved:
+        globals()[fam] = loose
+    try:
+        report("ALL *_limits", _solve_full(list_data))
+    finally:
+        for fam, val in saved.items():
+            globals()[fam] = val
+    print("=" * 72 + "\n")
 
 
 def main(_):
@@ -939,6 +1203,11 @@ def main(_):
         print(e)
 
     if not solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, []):
+        diagnose_infeasibility(list_data)
+
+        failed_days = []
+        failed_windows = []
+
         for d in range(month_days):
             check_days = []
             check_days.append(d)
@@ -953,6 +1222,8 @@ def main(_):
             format_input(list_data, employees, employees_stats)
             result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
             print(f"day {d+1} = {result}")
+            if not result:
+                failed_days.append(d + 1)
 
         for d in range(month_days -4):
             check_days = []
@@ -972,6 +1243,29 @@ def main(_):
             format_input(list_data, employees, employees_stats)
             result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
             print(f"day {d+1} + 4 days = {result}")
+            if not result:
+                failed_windows.append(d + 1)
+
+        print("\n" + "=" * 72)
+        print("INFEASIBILITY VERDICT")
+        print("=" * 72)
+        if failed_days:
+            print(f"LOCAL infeasibility on individual day(s): {failed_days}")
+            print("  -> a single day cannot be staffed. Check availability (N marks), premium")
+            print("     M1/A1/N1 slots that need level AA/A, and per-day 'P' conflicts on those days.")
+        elif failed_windows:
+            print(f"LOCAL infeasibility on 5-day window(s) starting at day(s): {failed_windows}")
+            print("  -> no single day fails, but a run of days does. Check close-shift / close-night")
+            print("     spacing and clustered availability around those days.")
+        else:
+            print("GLOBAL infeasibility: every single day AND every 5-day window is feasible on")
+            print("its own, but the whole month is not. The blocker is a month-total capacity or")
+            print("cross-family interaction (e.g. nights vs virtual reserves). See the capacity")
+            print("report and constraint-family isolation above for the responsible family.")
+        print("=" * 72)
+
+        # produce a usable schedule anyway and report exactly which hard rules had to break
+        solve_best_effort(list_data)
 
 
 if __name__ == "__main__":

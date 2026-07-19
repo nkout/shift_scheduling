@@ -1,14 +1,14 @@
 # Data
 ################################################################################
 #start options
-month_first_day = "We"
+month_first_day = "Sa"
 month_days = 31
-public_holidays = []
+public_holidays = [15,]
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
-month_starts_with_internal_shift = True
+month_starts_with_internal_shift = False
 hot_periods = []
-filename = '202607k.csv'
+filename = '202608k.csv'
 max_solve_time = 40
 max_solve_time_check = 4
 colab_execution=False
@@ -248,4 +248,4 @@ virtual_limits = [
     ]
 
 # exclusive_groups = [[22,13], [8,14,20]]
-exclusive_groups = [[14,23],[9,21] ]
+exclusive_groups = [[13,21],]
