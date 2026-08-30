@@ -22,6 +22,11 @@ RELAX_HARD = False
 RELAX_PENALTY = 100000
 relaxations = []  # list of (bool_var, description) for softened hard-constraint violations
 
+# Status name ("OPTIMAL"/"FEASIBLE"/"INFEASIBLE"/"UNKNOWN"/"MODEL_INVALID") of the most
+# recent solve. The failure-path diagnostics read this to tell a *proven* INFEASIBLE
+# apart from a mere time-limit UNKNOWN — treating UNKNOWN as infeasible misdiagnoses.
+last_solve_status = ""
+
 def register_violation(model, cost_literals, cost_coefficients, description, weight=RELAX_PENALTY):
     """Create a penalized 'this hard rule was broken' indicator and track it for reporting."""
     v = model.new_bool_var(f"violation_{len(relaxations)}")
@@ -190,6 +195,10 @@ def can_do_external(employees, e):
 def validate_input(employees):
     valid = True
 
+    if len(employees) == 0:
+        print("no employees parsed (empty input)")
+        valid = False
+
     if not month_first_day in week:
         print("wrong day")
         valid = False
@@ -267,10 +276,48 @@ def validate_input(employees):
                     valid = False
                     print (f"wrong pref str {prf}")
 
+    if valid:
+        valid = validate_limits_coverage(employees)
     return valid
 
-def format_input(data, employees, employees_stats):
+def validate_limits_coverage(employees) -> bool:
+    """Every (family, shift_count) limits lookup add_constraints will perform must
+    exist in the family's table — otherwise model building dies with a bare KeyError
+    (e.g. max_shifts=10 vs tables covering only 0..7). Counts are checked over
+    0..MAX because the RELAX_HARD re-solve widens the lookup range down to 0."""
+    valid = True
+    for i, emp in enumerate(employees):
+        name, level = emp[0], emp[1]
+        lo, hi = emp[2][0], emp[2][1]
+        if lo < 0 or lo > hi:
+            print(f"{name}: invalid shift range MIN={lo} MAX={hi}")
+            valid = False
+            continue
 
+        checks = []
+        if hi > 0:
+            if emp[3] >= len(night_limits):
+                print(f"{name}: extra_nights {emp[3]} beyond night_limits (has {len(night_limits)} tables)")
+                valid = False
+            elif can_do_nights(employees, i):
+                checks.append(("night_limits", night_limits[emp[3]]))
+            checks.append(("holiday_limits", holiday_limits[0]))
+            if can_do_internal(employees, i) and can_do_external(employees, i):
+                level_idx = 2 if level == "D" else 1 if level == "C" else 0
+                checks.append(("internal_limits", internal_limits[level_idx]))
+        checks.append(("virtual_limits", virtual_limits[1 if emp[4] > 0 else 0]))
+
+        for label, table in checks:
+            missing = [c for c in range(0, hi + 1) if c not in table]
+            if missing:
+                print(f"{name}: {label} has no entry for count(s) {missing} "
+                      f"(needed for shift range 0-{hi})")
+                valid = False
+    return valid
+
+def format_input(data, employees, employees_stats) -> bool:
+    """Parse CSV rows into employee records. Returns True on success; on a malformed
+    preference block returns False with both out-lists cleared."""
     for row in data:
         out = []
         out.append(row[0])
@@ -289,9 +336,12 @@ def format_input(data, employees, employees_stats):
         employees_stats.append(EmployeeStat())
 
         if month_days != count:
-            print("wrong pref data")
-            employees = []
-            return None
+            print(f"wrong pref data: employee '{row[0]}' has {count} preference day-triplets, "
+                  f"expected {month_days} (columns 8..{7 + 3 * month_days} of '{filename}')")
+            employees.clear()
+            employees_stats.clear()
+            return False
+    return True
 
 def as_html_table(lines):
     out = r"<table>"
@@ -512,11 +562,16 @@ class MuteSolutionPrinter(cp_model.CpSolverSolutionCallback):
         return self.__solution_count
 
 def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days, diagnostic=False):
-    """Solves the shift scheduling problem."""
+    """Solves the shift scheduling problem.
+
+    Returns True when a schedule was produced (OPTIMAL/FEASIBLE), False when the solve
+    ran but produced none (INFEASIBLE or UNKNOWN — distinguish via last_solve_status),
+    and None when input validation failed."""
     num_employees = len(employees)
     num_shifts = len(shifts)
     first_day_index = week.index(month_first_day)
 
+    global last_solve_status
     model = cp_model.CpModel()
     relaxations.clear()
 
@@ -744,7 +799,9 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
                         if not black_listed[e, s, d]:
                             can_do = True
                     if not can_do:
-                        print(f'CAN DO ERROR e {e} s {s} d {d}')
+                        print(f"IMPOSSIBLE P: {get_employee_name(employees,e)} must work day {d+1} "
+                              f"({day_part_name(dp_idx)}) but every shift in that slot is "
+                              f"blacklisted for their level — this alone makes the month infeasible")
 
                 if slot_pref == "N":
                     if RELAX_HARD:
@@ -810,13 +867,16 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         #sum(obj_int_vars[i] * obj_int_coeffs[i] for i in range(len(obj_int_vars)))
     )
 
-    if output_proto:
-        print(f"Writing proto to {output_proto}")
-        with open(output_proto, "w") as text_file:
-            text_file.write(str(model))
-
-    with open("model.pbtxt", "w") as f:
-        f.write(str(model.Proto()))
+    # model.pbtxt is the artifact to load when a month won't solve: keep it holding the
+    # *primary* full-month model, so the diagnostic / per-day / relaxed re-solves that
+    # follow a failure never clobber it.
+    if not diagnostic and len(check_days) == 0 and not RELAX_HARD:
+        if output_proto:
+            print(f"Writing proto to {output_proto}")
+            with open(output_proto, "w") as text_file:
+                text_file.write(str(model))
+        with open("model.pbtxt", "w") as f:
+            f.write(str(model.Proto()))
 
     # Solve the model.
     solver = cp_model.CpSolver()
@@ -848,6 +908,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
 
     solution_printer = cp_model.ObjectiveSolutionPrinter()  if (len(check_days) == 0 and not diagnostic) else MuteSolutionPrinter()
     status = solver.solve(model, solution_printer)
+    last_solve_status = solver.status_name(status)
 
     if len(check_days) == 0 and not diagnostic:
         print("Status = %s" % solver.status_name(status))
@@ -866,19 +927,24 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
             print("SOLVED")
             print_solution(solver, status, work, virtual_work, employees, employees_stats)
         return True
+
+    if diagnostic:
+        return False  # quiet: diagnostic re-solves report through last_solve_status
+    if len(check_days) > 0:
+        return False  # per-day / per-window probe: main() prints the verdict line
+
+    print("NOT SOLVED :-(")
+    if status == cp_model.INFEASIBLE:
+        print("Status = INFEASIBLE — the solver PROVED no schedule can satisfy all hard rules.")
+    elif status == cp_model.MODEL_INVALID:
+        print(f"Status = MODEL_INVALID — model.validate() says: {model.validate()}")
     else:
-        if not diagnostic:
-            print("NOT SOLVED :-(")
-
-            if status == cp_model.INFEASIBLE:
-                # print infeasible boolean variables index
-                print('SufficientAssumptionsForInfeasibility = 'f'{solver.SufficientAssumptionsForInfeasibility()}')
-
-                # print infeasible boolean variables
-                infeasibles = solver.SufficientAssumptionsForInfeasibility()
-                for i in infeasibles:
-                    print('Infeasible constraint: %d' % model.GetBoolVarFromProtoIndex(i))
-        return False
+        print(f"Status = {last_solve_status} — time limit hit after {solver.wall_time:.1f}s.")
+        print("The month is NOT proven infeasible; raising max_solve_time in config.py may still solve it.")
+    print("model.pbtxt holds this model's proto for offline inspection.")
+    print("Automated diagnosis follows: capacity report, constraint-family isolation,")
+    print("per-day / per-5-day-window localisation, then a best-effort relaxed schedule.")
+    return False
 
 
 def add_constraints(model, work, specific_input, num_employees, num_shifts, cost_coefficients, cost_literals, employees, employees_stats):
@@ -1048,7 +1114,9 @@ def solve_best_effort(list_data):
         black_listed = {}
         employees = []
         employees_stats = []
-        format_input(list_data, employees, employees_stats)
+        if not format_input(list_data, employees, employees_stats):
+            print("best-effort solve skipped: malformed input data (see message above)")
+            return
         solve_shift_scheduling("", cost_literals, cost_coefficients, work,
                                virtual_work, black_listed, employees, employees_stats, [])
     finally:
@@ -1070,7 +1138,8 @@ def _solve_full(list_data, diagnostic=True, zero_mins=False):
     black_listed = {}
     employees = []
     employees_stats = []
-    format_input(list_data, employees, employees_stats)
+    if not format_input(list_data, employees, employees_stats):
+        return False
     if zero_mins:
         for emp in employees:
             emp[2][0] = 0
@@ -1083,7 +1152,8 @@ def report_capacity(list_data):
     """Aggregate necessary-condition check: required shifts per category vs available capacity."""
     employees = []
     stats = []
-    format_input(list_data, employees, stats)
+    if not format_input(list_data, employees, stats):
+        return
     n = len(employees)
 
     total = nights = internal = holiday = virtual = 0
@@ -1153,7 +1223,12 @@ def diagnose_infeasibility(list_data):
     print(f"    (each re-solve capped at {diagnostic_solve_time}s; 'inconclusive' = hit time limit)\n")
 
     def report(label, res):
-        verdict = "FEASIBLE when relaxed  <-- suspect" if res else "still infeasible"
+        if res:
+            verdict = "FEASIBLE when relaxed  <-- suspect"
+        elif last_solve_status == "INFEASIBLE":
+            verdict = "still infeasible"
+        else:
+            verdict = f"INCONCLUSIVE ({last_solve_status}, likely time limit — raise diagnostic_solve_time)"
         print(f"  relax {label:22s} -> {verdict}")
 
     loose = _loose_limits_table()
@@ -1197,75 +1272,101 @@ def main(_):
     employees = []
     employees_stats = []
 
-    format_input(list_data, employees, employees_stats)
+    if not format_input(list_data, employees, employees_stats):
+        return
 
     for e in employees:
         print(e)
 
-    if not solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, []):
-        diagnose_infeasibility(list_data)
+    result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, [])
+    if result is None:
+        print("\nInput/config validation failed — fix the errors above first.")
+        print("Infeasibility diagnosis skipped: it is meaningless on invalid input.")
+        return
+    if result:
+        return
 
-        failed_days = []
-        failed_windows = []
+    if last_solve_status != "INFEASIBLE":
+        print(f"\nNOTE: the original solve ended {last_solve_status} (time limit), so the")
+        print("month is NOT proven infeasible. The diagnosis below is exploratory —")
+        print("raising max_solve_time in config.py may still solve the month.")
 
-        for d in range(month_days):
-            check_days = []
-            check_days.append(d)
-            cost_literals = []
-            cost_coefficients = []
-            work = {}
-            virtual_work = {}
-            black_listed = {}
-            employees = []
-            employees_stats = []
+    diagnose_infeasibility(list_data)
 
-            format_input(list_data, employees, employees_stats)
-            result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
-            print(f"day {d+1} = {result}")
-            if not result:
-                failed_days.append(d + 1)
+    failed_days = []
+    failed_windows = []
+    inconclusive_days = []
+    inconclusive_windows = []
 
-        for d in range(month_days -4):
-            check_days = []
-            check_days.append(d)
-            check_days.append(d+1)
-            check_days.append(d+2)
-            check_days.append(d + 3)
-            check_days.append(d + 4)
-            cost_literals = []
-            cost_coefficients = []
-            work = {}
-            virtual_work = {}
-            black_listed = {}
-            employees = []
-            employees_stats = []
+    for d in range(month_days):
+        check_days = [d]
+        cost_literals = []
+        cost_coefficients = []
+        work = {}
+        virtual_work = {}
+        black_listed = {}
+        employees = []
+        employees_stats = []
 
-            format_input(list_data, employees, employees_stats)
-            result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
-            print(f"day {d+1} + 4 days = {result}")
-            if not result:
-                failed_windows.append(d + 1)
-
-        print("\n" + "=" * 72)
-        print("INFEASIBILITY VERDICT")
-        print("=" * 72)
-        if failed_days:
-            print(f"LOCAL infeasibility on individual day(s): {failed_days}")
-            print("  -> a single day cannot be staffed. Check availability (N marks), premium")
-            print("     M1/A1/N1 slots that need level AA/A, and per-day 'P' conflicts on those days.")
-        elif failed_windows:
-            print(f"LOCAL infeasibility on 5-day window(s) starting at day(s): {failed_windows}")
-            print("  -> no single day fails, but a run of days does. Check close-shift / close-night")
-            print("     spacing and clustered availability around those days.")
+        if not format_input(list_data, employees, employees_stats):
+            return
+        result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
+        if result:
+            print(f"day {d+1} = ok")
+        elif last_solve_status == "INFEASIBLE":
+            print(f"day {d+1} = INFEASIBLE")
+            failed_days.append(d + 1)
         else:
-            print("GLOBAL infeasibility: every single day AND every 5-day window is feasible on")
-            print("its own, but the whole month is not. The blocker is a month-total capacity or")
-            print("cross-family interaction (e.g. nights vs virtual reserves). See the capacity")
-            print("report and constraint-family isolation above for the responsible family.")
-        print("=" * 72)
+            print(f"day {d+1} = {last_solve_status} (time limit — not proven, not counted)")
+            inconclusive_days.append(d + 1)
 
-        # produce a usable schedule anyway and report exactly which hard rules had to break
-        solve_best_effort(list_data)
+    for d in range(month_days -4):
+        check_days = [d, d+1, d+2, d+3, d+4]
+        cost_literals = []
+        cost_coefficients = []
+        work = {}
+        virtual_work = {}
+        black_listed = {}
+        employees = []
+        employees_stats = []
+
+        if not format_input(list_data, employees, employees_stats):
+            return
+        result = solve_shift_scheduling(_OUTPUT_PROTO.value, cost_literals, cost_coefficients, work, virtual_work, black_listed, employees, employees_stats, check_days)
+        if result:
+            print(f"day {d+1} + 4 days = ok")
+        elif last_solve_status == "INFEASIBLE":
+            print(f"day {d+1} + 4 days = INFEASIBLE")
+            failed_windows.append(d + 1)
+        else:
+            print(f"day {d+1} + 4 days = {last_solve_status} (time limit — not proven, not counted)")
+            inconclusive_windows.append(d + 1)
+
+    print("\n" + "=" * 72)
+    print("INFEASIBILITY VERDICT")
+    print("=" * 72)
+    if failed_days:
+        print(f"LOCAL infeasibility on individual day(s): {failed_days}")
+        print("  -> a single day cannot be staffed. Check availability (N marks), premium")
+        print("     M1/A1/N1 slots that need level AA/A, and per-day 'P' conflicts on those days.")
+    elif failed_windows:
+        print(f"LOCAL infeasibility on 5-day window(s) starting at day(s): {failed_windows}")
+        print("  -> no single day fails, but a run of days does. Check close-shift / close-night")
+        print("     spacing and clustered availability around those days.")
+    else:
+        print("GLOBAL infeasibility: every single day AND every 5-day window is feasible on")
+        print("its own, but the whole month is not. The blocker is a month-total capacity or")
+        print("cross-family interaction (e.g. nights vs virtual reserves). See the capacity")
+        print("report and constraint-family isolation above for the responsible family.")
+    if inconclusive_days or inconclusive_windows:
+        print(f"UNPROVEN probe(s) due to time limit: days {inconclusive_days}, "
+              f"5-day windows {inconclusive_windows}")
+        print("  -> raise max_solve_time_check / diagnostic_solve_time to resolve them;")
+        print("     they were deliberately NOT counted as infeasible.")
+    print("=" * 72)
+
+    # produce a usable schedule anyway and report exactly which hard rules had to break
+    solve_best_effort(list_data)
 
 
 if __name__ == "__main__":

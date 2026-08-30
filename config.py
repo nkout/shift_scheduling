@@ -1,14 +1,14 @@
 # Data
 ################################################################################
 #start options
-month_first_day = "Sa"
-month_days = 31
-public_holidays = [15,]
+month_first_day = "Tu"
+month_days = 30
+public_holidays = []
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal_shift = False
 hot_periods = []
-filename = '202608k.csv'
+filename = '202609p.csv'
 max_solve_time = 40
 max_solve_time_check = 4
 colab_execution=False
@@ -91,9 +91,9 @@ night_limits = [
         1: ((0, 0, 0), (0, 0, 0)),
         2: ((0, 0, 0), (0, 0, 0)),
         3: ((1, 0, 3000), (1, 1, 0)),
-        4: ((1, 1, 3500), (2, 2, 0)),
-        5: ((2, 1, 4000), (2, 2, 0)),
-        6: ((2, 1, 5000), (2, 2, 0)),
+        4: ((2, 1, 10000), (2, 2, 0)),
+        5: ((2, 1, 15000), (2, 2, 0)),
+        6: ((2, 1, 15000), (2, 2, 0)),
         7: ((2, 1, 5000), (2, 2, 0)),
     },
     
@@ -247,5 +247,4 @@ virtual_limits = [
         },
     ]
 
-# exclusive_groups = [[22,13], [8,14,20]]
-exclusive_groups = [[13,21],]
+exclusive_groups = [] #[[12,21],]
