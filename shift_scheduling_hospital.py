@@ -339,13 +339,20 @@ def validate_limits_coverage(employees) -> bool:
                 valid = False
     return valid
 
+# Greek capitals that look identical to the Latin letters used in level and
+# preference codes (e.g. a Greek "Ν" typed instead of "N").
+GREEK_TO_LATIN = str.maketrans({"Α": "A", "Β": "B", "Ε": "E", "Ι": "I", "Ν": "N", "Ρ": "P"})
+
+def to_latin_code(value):
+    return str(value).strip().translate(GREEK_TO_LATIN)
+
 def format_input(data, employees, employees_stats) -> bool:
     """Parse CSV rows into employee records. Returns True on success; on a malformed
     preference block returns False with both out-lists cleared."""
     for row in data:
         out = []
         out.append(row[0])
-        out.append(row[1])
+        out.append(to_latin_code(row[1]))
         out.append([int(row[2]), int(row[3])])
         out.append(row[4])
         out.append(row[5])
@@ -354,7 +361,7 @@ def format_input(data, employees, employees_stats) -> bool:
         count = 0
         for i in range(7, len(row), 3):
             count += 1
-            prefs.append([row[i],row[i+1],row[i+2]])
+            prefs.append([to_latin_code(row[i]), to_latin_code(row[i+1]), to_latin_code(row[i+2])])
         out.append(prefs)
         employees.append(out)
         employees_stats.append(EmployeeStat())
