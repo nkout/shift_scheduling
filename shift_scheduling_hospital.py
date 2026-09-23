@@ -116,6 +116,26 @@ def is_public_holiday(d):
         return True
     return False
 
+def is_weekend(d):
+    return is_saturday(d) or is_sunday(d)
+
+def is_internal_day(d):
+    return (d + month_starts_with_internal) % len(shift_groups) == 1
+
+def get_day_shifts(d):
+    """Names of the real shifts that must be staffed on day d."""
+    if is_holiday(d):
+        day_shifts = set(holiday_shifts)
+    else:
+        day_shifts = set(week_day_shifts)
+    day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+    if not is_weekend(d):
+        day_shifts -= set(weekend_only_shifts)
+    return day_shifts
+
+def has_virtual_reserve(d):
+    return is_internal_day(d) and not (no_virtual_on_weekend and is_weekend(d))
+
 def get_night_shifts():
     return [shifts.index(x) for x in day_parts[2]]
 
@@ -227,6 +247,10 @@ def validate_input(employees):
     for s in holiday_shifts:
         if not s in shifts:
             print("wrong holiday shift")
+            valid = False
+    for s in weekend_only_shifts:
+        if not s in shifts:
+            print("wrong weekend-only shift")
             valid = False
     for h in public_holidays:
         if h > month_days or h <= 0:
@@ -489,12 +513,12 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
         out_logistics.append(line)
 
     out_official = []
-    out_official.append(["", "","", "ΠΡΩΙ", "", "ΑΠΟΓΕΥΜΑ", "", "",  "ΒΡΑΔΥ", ""])
+    out_official.append(["", "","", "ΠΡΩΙ", "", "", "ΑΠΟΓΕΥΜΑ", "", "",  "ΒΡΑΔΥ", ""])
     for d in range(month_days):
         line = []
         line.append(str(d + 1))
         line.append(week_gr[(d + first_day_index) % 7])
-        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+        if is_internal_day(d):
             line.append("ΕΣ")
         else:
             line.append("EN")
@@ -510,7 +534,7 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
                 for e in range(num_employees):
                     if solver.boolean_value(virtual_work[e, d]):
                         part_sifts.append(get_employee_name(employees,e))
-            part_len = 3 if day_part_i == 1 else 2
+            part_len = 3 if day_part_i in (0, 1) else 2
             part_sifts = (part_sifts + empty_shifts)[:part_len]
             line +=part_sifts
 
@@ -518,7 +542,7 @@ def print_solution(solver, status, work, virtual_work, employees, employees_stat
 
     out_official2 = []
     for line in out_official[1:]:
-        out_list = ([x for x in line if x != ""] + empty_shifts)[0:10]
+        out_list = ([x for x in line if x != ""] + empty_shifts)[0:11]
         out_official2.append(out_list)
 
     tmp = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html')
@@ -680,11 +704,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         if len(check_days) > 0 and not d in check_days:
             continue
 
-        if is_holiday(d):
-            day_shifts = set(holiday_shifts)
-        else:
-            day_shifts = set(week_day_shifts)
-        day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+        day_shifts = get_day_shifts(d)
 
         for s in range(num_shifts):
             works = [work[e, s, d] for e in range(num_employees)]
@@ -706,7 +726,7 @@ def solve_shift_scheduling(output_proto: str, cost_literals, cost_coefficients, 
         if len(check_days) > 0 and not d in check_days:
             continue
 
-        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+        if has_virtual_reserve(d):
             vw = [virtual_work[e, d] for e in range(num_employees)]
             if RELAX_HARD:
                 v = register_violation(model, cost_literals, cost_coefficients,
@@ -1158,11 +1178,7 @@ def report_capacity(list_data):
 
     total = nights = internal = holiday = virtual = 0
     for d in range(month_days):
-        if is_holiday(d):
-            day_shifts = set(holiday_shifts)
-        else:
-            day_shifts = set(week_day_shifts)
-        day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
+        day_shifts = get_day_shifts(d)
         for s in range(len(shifts)):
             if shifts[s] in day_shifts:
                 total += 1
@@ -1172,7 +1188,7 @@ def report_capacity(list_data):
                     internal += 1
                 if is_holiday(d):
                     holiday += 1
-        if (d + month_starts_with_internal) % len(shift_groups) == 1:
+        if has_virtual_reserve(d):
             virtual += 1
 
     sum_max = sum(get_employee_max_shifts(employees, e) for e in range(n))

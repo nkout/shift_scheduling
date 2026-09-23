@@ -1,14 +1,14 @@
 # Data
 ################################################################################
 #start options
-month_first_day = "Tu"
-month_days = 30
-public_holidays = []
+month_first_day = "Th"
+month_days = 31
+public_holidays = [28,]
 prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal_shift = False
 hot_periods = []
-filename = '202609p.csv'
+filename = '202610k.csv'
 max_solve_time = 40
 max_solve_time_check = 4
 colab_execution=False
@@ -18,32 +18,34 @@ colab_execution=False
 
 week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 week_gr = ["ΔΕΥΤΕΡΑ", "ΤΡΙΤΗ", "ΤΕΤΑΡΤΗ", "ΠΕΜΠΤΗ", "ΠΑΡΑΣΚΕΥΗ", "ΣΑΒΒΑΤΟ", "ΚΥΡΙΑΚΗ"]
-shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3", "N1", "N2"]
+shifts = ["IM", "M1", "M2", "M3", "IA", "A1", "A2", "A3", "N1", "N2"]
 
 shift_groups = [
-    ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
+    ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2"],
     ["IM", "IA"]
 ]
 
 week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
-holiday_shifts = ["IM", "M1", "M2", "IA", "A1", "A2", "A3","N1", "N2"]
+holiday_shifts = ["IM", "M1", "M2", "M3", "IA", "A1", "A2", "A3","N1", "N2"]
+weekend_only_shifts = ["M3"]  # staffed on Sa/Su only, never on a weekday public holiday
+no_virtual_on_weekend = True  # Sa/Su internal days have no virtual reserve
 
 levels = {
-    "AA": ["M1", "M2", "A1", "A2", "A3", "N1", "N2"],
-    "A": ["M1", "M2", "A1", "A2", "A3", "N1", "N2", "IM", "IA"],
-    "B": ["M2", "A2", "A3", "N2", "IM", "IA"],
-    "C": ["M2", "A3", "N2", "IM", "IA"],
-    "D": ["M2", "A3", "IM", "IA"],
-    "E": ["M2", "A3"]
+    "AA": ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2"],
+    "A": ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2", "IM", "IA"],
+    "B": ["M2", "M3", "A2", "A3", "N2", "IM", "IA"],
+    "C": ["M2", "M3", "A3", "N2", "IM", "IA"],
+    "D": ["M2", "M3", "A3", "IM", "IA"],
+    "E": ["M2", "M3", "A3"]
 }
 
 level_penalties = {
-    "AA": {"A3": 500},
-    "A": {"IA": 500, "IM": 500, "A3": 800},
+    "AA": {"A3": 500, "M3": 500},
+    "A": {"IA": 500, "IM": 500, "A3": 800, "M3": 800},
 }
 
 day_parts = [
-    ["IM", "M1", "M2"],
+    ["IM", "M1", "M2", "M3"],
     ["IA", "A1", "A2", "A3"],
     ["N1", "N2"]
 ]
