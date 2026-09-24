@@ -8,7 +8,7 @@ prev_month_last_is_holiday = False
 next_month_first_is_holiday = False
 month_starts_with_internal_shift = True
 hot_periods = []
-filename = '202610p.csv'
+filename = '202610k.csv'
 max_solve_time = 40
 max_solve_time_check = 4
 colab_execution=False
@@ -33,9 +33,9 @@ levels = {
     "AA": ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2"],
     "A": ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2", "IM", "IA"],
     "B": ["M2", "M3", "A2", "A3", "N2", "IM", "IA"],
-    "C": ["M2", "M3", "A3", "N2", "IM", "IA"],
-    "D": ["M2", "M3", "A3", "IM", "IA"],
-    "E": ["M2", "M3", "A3"]
+    "C": ["M3", "A3", "N2", "IM", "IA"],
+    "D": ["M3", "A3", "IM", "IA"],
+    "E": ["M3", "A3"]
 }
 
 level_penalties = {
@@ -248,4 +248,4 @@ virtual_limits = [
         },
     ]
 
-exclusive_groups = [] #[[12,21],]
+exclusive_groups = [[13,22],]
