@@ -27,8 +27,7 @@ shift_groups = [
 
 week_day_shifts = ["IA", "A1", "A2", "A3", "N1", "N2"]
 holiday_shifts = ["IM", "M1", "M2", "M3", "IA", "A1", "A2", "A3","N1", "N2"]
-weekend_only_shifts = ["M3"]  # staffed on Sa/Su only, never on a weekday public holiday
-no_virtual_on_weekend = True  # Sa/Su internal days have no virtual reserve
+no_virtual_on_holiday = True  # internal holidays (Sa/Su and public holidays) have no virtual reserve
 
 levels = {
     "AA": ["M1", "M2", "M3", "A1", "A2", "A3", "N1", "N2"],

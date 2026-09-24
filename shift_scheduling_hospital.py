@@ -116,9 +116,6 @@ def is_public_holiday(d):
         return True
     return False
 
-def is_weekend(d):
-    return is_saturday(d) or is_sunday(d)
-
 def is_internal_day(d):
     return (d + month_starts_with_internal) % len(shift_groups) == 1
 
@@ -129,12 +126,10 @@ def get_day_shifts(d):
     else:
         day_shifts = set(week_day_shifts)
     day_shifts = day_shifts.intersection(set(shift_groups[(d + month_starts_with_internal) % len(shift_groups)]))
-    if not is_weekend(d):
-        day_shifts -= set(weekend_only_shifts)
     return day_shifts
 
 def has_virtual_reserve(d):
-    return is_internal_day(d) and not (no_virtual_on_weekend and is_weekend(d))
+    return is_internal_day(d) and not (no_virtual_on_holiday and is_holiday(d))
 
 def get_night_shifts():
     return [shifts.index(x) for x in day_parts[2]]
@@ -247,10 +242,6 @@ def validate_input(employees):
     for s in holiday_shifts:
         if not s in shifts:
             print("wrong holiday shift")
-            valid = False
-    for s in weekend_only_shifts:
-        if not s in shifts:
-            print("wrong weekend-only shift")
             valid = False
     for h in public_holidays:
         if h > month_days or h <= 0:
